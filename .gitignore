@@ -1,0 +1,22 @@
+### Secrets — 절대 커밋 금지 (이 저장소는 public) ###
+.env
+**/firebase-service-account.json
+*serviceAccount*.json
+# secrets/ 는 compose.yaml이 /run/secrets 로 마운트하는 디렉터리다.
+# 디렉터리 자체는 저장소에 있어야 하므로 .gitkeep만 남기고 내용물은 전부 막는다.
+secrets/*
+!secrets/.gitkeep
+
+### cloudflared locally-managed 모드로 바꿀 경우의 credentials ###
+*.cloudflared/
+cert.pem
+*-credentials.json
+
+### OS ###
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+### 편집기 ###
+.vscode/
+.idea/

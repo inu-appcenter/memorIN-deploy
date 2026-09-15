@@ -1,0 +1,209 @@
+# memorIN 운영 배포용 Compose (Docker Compose V2).
+#
+# memorIN-backend/docker-compose.yml(로컬 개발, 소스 빌드)과 달리 이 파일은
+# GHCR에 미리 빌드된 이미지만 pull한다 — 서버에서 Gradle/npm 빌드가 돌지 않는다.
+# backend/frontend 이미지는 각 저장소의 CI(.github/workflows/ci.yml, image job)가
+# main 브랜치 푸시마다 자동으로 올린다.
+#
+# 외부에 열린 인바운드 포트가 없다 — 유일한 진입점은 cloudflared 터널이고,
+# 터널은 서버에서 Cloudflare 엣지로 나가는 아웃바운드 연결만 쓴다(포트 제한 우회, README 참고).
+# 아래 postgres/minio-console 포트는 127.0.0.1에만 바인딩되어 있어 호스트 밖에서는 보이지 않는다.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: memorin_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-memorin_db}
+      POSTGRES_USER: ${POSTGRES_USER:-memorin_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memorin_pass}
+    ports:
+      # DB 포트는 같은 머신의 SSH 터널 + DBeaver 등 로컬 개발툴 전용이다.
+      # 컨테이너 네트워크 안(backend)은 이 매핑과 무관하게 postgres:5432로 접속한다.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./infra/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - memorin_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-memorin_user} -d ${POSTGRES_DB:-memorin_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMORY_LIMIT:-512m}
+
+  minio:
+    image: minio/minio:latest
+    container_name: memorin_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      # S3 API(9000)는 더 이상 호스트에 공개 바인딩하지 않는다 — cloudflared가 컨테이너
+      # 네트워크 안에서 minio:9000으로 직접 붙어 storage.<도메인>으로 외부에 낸다.
+      # 관리 콘솔(9001)은 관리자 전용이라 postgres와 같은 이유로 루프백만 연다.
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - memorin_network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+    deploy:
+      resources:
+        limits:
+          memory: ${MINIO_MEMORY_LIMIT:-512m}
+
+  backend:
+    image: ghcr.io/inu-appcenter/memorin-backend:${BACKEND_TAG:-latest}
+    container_name: memorin_backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-memorin_db}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-memorin_user}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-memorin_pass}
+      MINIO_ENDPOINT: http://minio:9000
+      # 클라이언트(브라우저/앱)가 presigned URL로 직접 접근할 주소. cloudflared가
+      # storage.<도메인> 호스트네임을 minio:9000으로 라우팅하므로 그 도메인을 그대로 쓴다.
+      # MinIO는 경로(prefix) 리버스 프록시를 지원하지 않는다 — presigned URL이 SigV4로
+      # 경로까지 서명하기 때문에, 여기 도메인은 반드시 "전용 호스트"여야 한다(서브패스 불가).
+      MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-memorin-media}
+      MINIO_ALLOWED_CONTENT_TYPES: ${MINIO_ALLOWED_CONTENT_TYPES:-image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime}
+      MINIO_PRESIGNED_UPLOAD_EXPIRY_SECONDS: ${MINIO_PRESIGNED_UPLOAD_EXPIRY_SECONDS:-600}
+      MINIO_PRESIGNED_DOWNLOAD_EXPIRY_SECONDS: ${MINIO_PRESIGNED_DOWNLOAD_EXPIRY_SECONDS:-300}
+      MINIO_MAX_UPLOAD_SIZE_BYTES: ${MINIO_MAX_UPLOAD_SIZE_BYTES:-52428800}
+      # 서비스 배포 시에는 랜덤 256비트 문자열 사용
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRY_MS: ${JWT_ACCESS_EXPIRY_MS:-900000}
+      JWT_REFRESH_EXPIRY_MS: ${JWT_REFRESH_EXPIRY_MS:-604800000}
+      STORAGE_QUOTA_DEFAULT_LIMIT_BYTES: ${STORAGE_QUOTA_DEFAULT_LIMIT_BYTES:-1073741824}
+      STORAGE_QUOTA_PENDING_TTL_SECONDS: ${STORAGE_QUOTA_PENDING_TTL_SECONDS:-900}
+      STORAGE_QUOTA_WARNING_THRESHOLD_PERCENT: ${STORAGE_QUOTA_WARNING_THRESHOLD_PERCENT:-80}
+      MEDIA_COMPRESSION_IMAGE_QUALITY_PERCENT: ${MEDIA_COMPRESSION_IMAGE_QUALITY_PERCENT:-80}
+      MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX:-1920}
+      MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX:-1920}
+      # 기본값을 특정 조직 도메인으로 두지 않는다. .env에 없으면 빈 문자열로 채워져 CORS가
+      # 전부 막힌다 — 값을 빼먹었을 때 남의 도메인을 조용히 물려받는 대신 눈에 띄게 실패시킨다.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      FIREBASE_ENABLED: ${FIREBASE_ENABLED:-false}
+      FIREBASE_SERVICE_ACCOUNT_PATH: ${FIREBASE_SERVICE_ACCOUNT_PATH:-/run/secrets/firebase-service-account.json}
+      WEB_PUSH_ENABLED: ${WEB_PUSH_ENABLED:-false}
+      WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+      WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+      WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-mailto:admin@memorin.local}
+      # 힙 상한은 컨테이너 메모리의 75%. 힙덤프는 /dump 볼륨에 남긴다.
+      # OOM이면 반쯤 죽은 채 버티지 말고 즉시 종료 → restart 정책이 다시 띄운다.
+      JAVA_TOOL_OPTIONS: >-
+        -XX:MaxRAMPercentage=75.0
+        -XX:+HeapDumpOnOutOfMemoryError
+        -XX:HeapDumpPath=/dump/heapdump.hprof
+        -XX:+ExitOnOutOfMemoryError
+    # 8080을 호스트에 공개하지 않는다 — frontend(nginx)가 컨테이너 네트워크 안에서
+    # backend:8080으로 프록시하고, 외부에는 frontend가 낸 단일 도메인만 보인다.
+    volumes:
+      - heapdumps:/dump
+      - ./secrets:/run/secrets:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEMORY_LIMIT:-1g}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - memorin_network
+    # /api/health는 인증 없이 열려 있고 DB 연결까지 확인한다.
+    # start_period 30초: Flyway 마이그레이션 + JPA 스키마 검증 포함 기동 시간에 여유를 둔다.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  frontend:
+    image: ghcr.io/inu-appcenter/memorin-frontend:${FRONTEND_TAG:-latest}
+    container_name: memorin_frontend
+    restart: unless-stopped
+    environment:
+      # nginx가 시작 시 이 값으로 /api, /auth, /ws 프록시 대상과 config.json을 만든다.
+      # 컨테이너 네트워크 안이므로 서비스명으로 접근 — 호스트나 외부 도메인이 아니다.
+      BACKEND_ORIGIN: http://backend:8080
+      # 백엔드 WEB_PUSH_VAPID_PUBLIC_KEY와 반드시 같은 값이어야 한다(불일치 시 발송 403).
+      VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
+    # 포트를 호스트에 공개하지 않는다 — cloudflared가 컨테이너 네트워크 안에서
+    # frontend:80으로 붙어 공개 도메인(memorin.<도메인>)을 낸다.
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - memorin_network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
+
+  # 서버에 인바운드 포트를 하나도 열지 않고 공개 도메인을 내기 위한 역방향 터널.
+  # cloudflared는 서버 → Cloudflare 엣지로 나가는 아웃바운드 연결만 맺는다(포트 7844).
+  # 443으로는 대체할 수 없다 — 7844는 cloudflared 자체의 필수 요건이고, 443은 자동 업데이트
+  # 등 선택 기능용이다. 기관망이 UDP를 막는 경우가 흔해 http2(TCP)로 고정한다.
+  # 도메인 ↔ 컨테이너 매핑(ingress)은 Cloudflare Zero Trust 대시보드에서 관리한다(README 참고):
+  #   memorin.<도메인>         → http://frontend:80
+  #   storage.memorin.<도메인> → http://minio:9000
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: memorin_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+      TUNNEL_TRANSPORT_PROTOCOL: http2
+    depends_on:
+      frontend:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - memorin_network
+    logging: *default-logging
+
+# 컨테이너가 삭제되더라도 postgres, minio 데이터는 남는다.
+# docker compose down -v 를 실행하면 데이터도 함께 삭제된다.
+volumes:
+  postgres_data:
+  minio_data:
+  heapdumps:
+
+networks:
+  memorin_network:
+    driver: bridge
