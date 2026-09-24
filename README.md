@@ -127,3 +127,10 @@ docker compose up -d backend   # 또는 frontend
 pgAdmin을 포함하지 않는다 — 운영 DB에 접속해야 하면 SSH 터널 + DBeaver를 쓴다
 (`memorIN-backend/docs/pgadmin-onboarding-grant-guide.md` 참고, 접속 정보는 로컬 기준이지만
 호스트 대신 SSH 터널을 거치는 절차는 동일하다).
+
+## 라이선스
+
+이 저장소의 배포 설정은 [MIT License](LICENSE)를 따른다. Copyright (c) 2026 INU AppCenter.
+
+- 애플리케이션 코드는 각 저장소의 라이선스를 따른다: `memorIN-backend`는 AGPL-3.0, `memorIN-frontend`는 MIT.
+- 이 구성이 받아 쓰는 외부 이미지(PostgreSQL, MinIO, cloudflared 등)는 각자의 라이선스를 따른다.
