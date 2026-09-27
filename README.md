@@ -25,8 +25,14 @@ secrets/                        # firebase-service-account.json 등 (내용물�
 ## 사전 준비
 
 1. **도메인 2개** (모두 같은 Cloudflare Tunnel, 같은 인증서로 나간다)
-   - `memorin.inuappcenter.co.kr` — 웹(SPA) + API + WebSocket
-   - `storage.memorin.inuappcenter.co.kr` — MinIO S3 API 전용
+   - `memorin.inuappcenter.kr` — 웹(SPA) + API + WebSocket
+   - `memorin-storage.inuappcenter.kr` — MinIO S3 API 전용
+
+   배포에 쓰는 Cloudflare 계정의 존은 `inuappcenter.kr` 하나뿐이다(`.co.kr` 아님). 위 두 호스트네임은
+   [#1](https://github.com/inu-appcenter/memorIN-deploy/issues/1) 코멘트의 제안안 기준이며, 확정되거나 바뀌면
+   이 문서와 `.env` 예시를 맞춘다. 스토리지를 `storage.memorin.inuappcenter.kr`처럼 두 단계 서브도메인으로
+   두지 않는 이유는, full setup 존에서 Cloudflare Universal SSL 인증서가 `*.inuappcenter.kr` 한 단계까지만
+   덮기 때문이다(Total TLS나 Advanced Certificate Manager를 쓰면 달라진다).
 
    MinIO는 presigned URL이 서명에 경로까지 포함하는 SigV4를 쓰기 때문에 **경로(subpath) 리버스
    프록시가 불가능**하다. `memorin.../storage/...` 같은 구성은 `SignatureDoesNotMatch`로 실패한다
@@ -39,8 +45,8 @@ secrets/                        # firebase-service-account.json 등 (내용물�
 
      | Public hostname | Service |
      |---|---|
-     | `memorin.inuappcenter.co.kr` | `http://frontend:80` |
-     | `storage.memorin.inuappcenter.co.kr` | `http://minio:9000` |
+     | `memorin.inuappcenter.kr` | `http://frontend:80` |
+     | `memorin-storage.inuappcenter.kr` | `http://minio:9000` |
 
 3. **서버 요구사항**
    - Docker Engine + Compose V2 플러그인 (`docker compose version`으로 확인, `docker-compose`

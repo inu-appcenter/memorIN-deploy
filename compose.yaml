@@ -55,7 +55,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
       # S3 API(9000)는 더 이상 호스트에 공개 바인딩하지 않는다 — cloudflared가 컨테이너
-      # 네트워크 안에서 minio:9000으로 직접 붙어 storage.<도메인>으로 외부에 낸다.
+      # 네트워크 안에서 minio:9000으로 직접 붙어 스토리지 전용 호스트네임으로 외부에 낸다.
       # 관리 콘솔(9001)은 관리자 전용이라 postgres와 같은 이유로 루프백만 연다.
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
@@ -83,8 +83,8 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-memorin_user}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-memorin_pass}
       MINIO_ENDPOINT: http://minio:9000
-      # 클라이언트(브라우저/앱)가 presigned URL로 직접 접근할 주소. cloudflared가
-      # storage.<도메인> 호스트네임을 minio:9000으로 라우팅하므로 그 도메인을 그대로 쓴다.
+      # 클라이언트(브라우저/앱)가 presigned URL로 직접 접근할 주소. cloudflared가 스토리지 전용
+      # 호스트네임(memorin-storage.<도메인>)을 minio:9000으로 라우팅하므로 그 도메인을 그대로 쓴다.
       # MinIO는 경로(prefix) 리버스 프록시를 지원하지 않는다 — presigned URL이 SigV4로
       # 경로까지 서명하기 때문에, 여기 도메인은 반드시 "전용 호스트"여야 한다(서브패스 불가).
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
@@ -106,8 +106,14 @@ services:
       MEDIA_COMPRESSION_IMAGE_QUALITY_PERCENT: ${MEDIA_COMPRESSION_IMAGE_QUALITY_PERCENT:-80}
       MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX:-1920}
       MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX:-1920}
-      # 기본값을 특정 조직 도메인으로 두지 않는다. .env에 없으면 빈 문자열로 채워져 CORS가
-      # 전부 막힌다 — 값을 빼먹었을 때 남의 도메인을 조용히 물려받는 대신 눈에 띄게 실패시킨다.
+      # 기본값을 특정 조직 도메인으로 두지 않는다. .env에 없으면 빈 문자열로 채워져, 브라우저가
+      # Origin을 붙이는 요청(POST·PATCH·DELETE, WebSocket 핸드셰이크)이 전부 403으로 막힌다
+      # (같은 도메인 GET과 네이티브 앱 요청은 영향 없음) — 값을 빼먹었을 때 남의 도메인을 조용히
+      # 물려받는 대신 눈에 띄게 실패시킨다.
+      # frontend nginx는 80에서 받으므로 X-Forwarded-Proto=$scheme(http)를 넘기고, 백엔드는
+      # server.forward-headers-strategy=framework로 이를 반영해 자기 주소를 http://memorin.<도메인>으로
+      # 인식한다. 브라우저 Origin(https://…)과 스킴이 달라 같은 도메인 요청도 교차 출처로 판정되므로,
+      # 이 값에는 https 공개 주소가 정확히 있어야 한다: https://memorin.<도메인>
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       FIREBASE_ENABLED: ${FIREBASE_ENABLED:-false}
       FIREBASE_SERVICE_ACCOUNT_PATH: ${FIREBASE_SERVICE_ACCOUNT_PATH:-/run/secrets/firebase-service-account.json}
@@ -179,7 +185,8 @@ services:
   # 등 선택 기능용이다. 기관망이 UDP를 막는 경우가 흔해 http2(TCP)로 고정한다.
   # 도메인 ↔ 컨테이너 매핑(ingress)은 Cloudflare Zero Trust 대시보드에서 관리한다(README 참고):
   #   memorin.<도메인>         → http://frontend:80
-  #   storage.memorin.<도메인> → http://minio:9000
+  #   memorin-storage.<도메인> → http://minio:9000
+  # 스토리지를 storage.memorin.<도메인>처럼 두 단계로 두지 않는 이유는 README 참고.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: memorin_cloudflared
