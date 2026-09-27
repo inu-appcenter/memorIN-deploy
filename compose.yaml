@@ -24,7 +24,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-memorin_db}
       POSTGRES_USER: ${POSTGRES_USER:-memorin_user}
       # 비밀번호·MinIO 계정에는 기본값을 두지 않는다. 이 저장소는 public이라 기본값이 곧 공개된 값이다.
-      # .env에 없으면 compose가 기동 전에 에러를 내고 멈춘다(${VAR:?} 문법). up뿐 아니라 ps·logs·down도 멈추므로 .env부터 고친다.
+      # .env에 값이 없거나 비어 있으면 ${VAR:?} 문법에 따라 docker compose up과 pull이 에러를 내고 멈춘다.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env에 POSTGRES_PASSWORD를 채워야 한다}
     ports:
       # DB 포트는 같은 머신의 SSH 터널 + DBeaver 등 로컬 개발툴 전용이다.
