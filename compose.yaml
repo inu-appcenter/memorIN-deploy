@@ -23,7 +23,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-memorin_db}
       POSTGRES_USER: ${POSTGRES_USER:-memorin_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-memorin_pass}
+      # 비밀번호·MinIO 계정에는 기본값을 두지 않는다. 이 저장소는 public이라 기본값이 곧 공개된 값이다.
+      # .env에 값이 없거나 비어 있으면 ${VAR:?} 문법에 따라 docker compose up과 pull이 에러를 내고 멈춘다.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env에 POSTGRES_PASSWORD를 채워야 한다}
     ports:
       # DB 포트는 같은 머신의 SSH 터널 + DBeaver 등 로컬 개발툴 전용이다.
       # 컨테이너 네트워크 안(backend)은 이 매핑과 무관하게 postgres:5432로 접속한다.
@@ -51,8 +53,8 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?.env에 MINIO_ROOT_USER를 채워야 한다}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?.env에 MINIO_ROOT_PASSWORD를 채워야 한다}
     ports:
       # S3 API(9000)는 더 이상 호스트에 공개 바인딩하지 않는다 — cloudflared가 컨테이너
       # 네트워크 안에서 minio:9000으로 직접 붙어 스토리지 전용 호스트네임으로 외부에 낸다.
@@ -81,7 +83,7 @@ services:
       SPRING_PROFILES_ACTIVE: docker
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-memorin_db}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-memorin_user}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-memorin_pass}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?.env에 POSTGRES_PASSWORD를 채워야 한다}
       MINIO_ENDPOINT: http://minio:9000
       # 클라이언트(브라우저/앱)가 presigned URL로 직접 접근할 주소. cloudflared가 스토리지 전용
       # 호스트네임(memorin-storage.<도메인>)을 minio:9000으로 라우팅하므로 그 도메인을 그대로 쓴다.
@@ -89,8 +91,8 @@ services:
       # 경로까지 서명하기 때문에, 여기 도메인은 반드시 "전용 호스트"여야 한다(서브패스 불가).
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
-      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?.env에 MINIO_ROOT_USER를 채워야 한다}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?.env에 MINIO_ROOT_PASSWORD를 채워야 한다}
       MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-memorin-media}
       MINIO_ALLOWED_CONTENT_TYPES: ${MINIO_ALLOWED_CONTENT_TYPES:-image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime}
       MINIO_PRESIGNED_UPLOAD_EXPIRY_SECONDS: ${MINIO_PRESIGNED_UPLOAD_EXPIRY_SECONDS:-600}
