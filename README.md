@@ -53,7 +53,7 @@ secrets/                        # firebase-service-account.json 등 (내용물�
 git clone https://github.com/inu-appcenter/memorIN-deploy.git
 cd memorIN-deploy
 cp .env.example .env
-vi .env   # 최소한 CLOUDFLARE_TUNNEL_TOKEN, MINIO_PUBLIC_ENDPOINT, JWT_SECRET, CORS_ALLOWED_ORIGINS 채우기
+vi .env   # 필수값 채우기 (아래 표)
 
 # FCM을 쓴다면(FIREBASE_ENABLED=true)
 cp /path/to/firebase-service-account.json secrets/
@@ -63,6 +63,33 @@ docker compose pull
 docker compose up -d
 docker compose ps   # 전 서비스 healthy 확인
 ```
+
+`.env` 필수값:
+
+| 변수 | 채울 값 |
+|---|---|
+| `CLOUDFLARE_TUNNEL_TOKEN` | Zero Trust 대시보드에서 발급한 터널 토큰 |
+| `POSTGRES_PASSWORD` | 무작위 긴 값 (`openssl rand -base64 24`) |
+| `MINIO_ROOT_USER` | 무작위 영숫자 3자 이상 (`openssl rand -hex 12`) |
+| `MINIO_ROOT_PASSWORD` | 무작위 8자 이상 (`openssl rand -base64 24`) |
+| `MINIO_PUBLIC_ENDPOINT` | 스토리지 공개 주소 (`https://` + 위 "사전 준비"의 스토리지 호스트네임) |
+| `JWT_SECRET` | 256비트 이상 무작위 값 (`openssl rand -base64 32`) |
+| `CORS_ALLOWED_ORIGINS` | 웹 공개 주소 (`https://` + 위 "사전 준비"의 웹 호스트네임) |
+
+- `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`는 기본값이 없다. 이 저장소가 public이라
+  기본값이 곧 공개된 값이기 때문이다. 비어 있으면 compose가 기동 전에 에러를 내고 멈춘다
+  (`docker compose ps`·`logs`·`down`도 같은 에러로 멈추니 `.env`부터 고친다).
+- 나머지 네 값은 비어 있어도 compose는 진행된다. 대신 `JWT_SECRET`·`MINIO_PUBLIC_ENDPOINT`가 비면
+  backend가, `CLOUDFLARE_TUNNEL_TOKEN`이 비면 cloudflared가 기동에 실패한다. `CORS_ALLOWED_ORIGINS`가
+  비거나 공개 주소와 다르면 기동은 되지만 로그인 같은 POST 요청이 403으로 막힌다.
+- 이미 한 번 기동해 `postgres_data` 볼륨이 있는 서버에서 `POSTGRES_PASSWORD`를 바꿀 때는 `.env`만 바꾸면
+  안 된다. postgres 이미지는 데이터 디렉터리가 비어 있을 때만 이 값을 적용하므로 DB 쪽 비밀번호는 옛 값으로
+  남고, backend만 새 값으로 접속하다 실패한다. 먼저 DB 비밀번호를 바꾼 뒤 `.env`를 고친다:
+  ```sh
+  docker compose exec postgres psql -U <POSTGRES_USER> -d <POSTGRES_DB> \n    -c "ALTER USER <POSTGRES_USER> PASSWORD '<새 비밀번호>';"
+  # 그다음 .env의 POSTGRES_PASSWORD를 같은 값으로 바꾸고
+  docker compose up -d
+  ```
 
 업데이트(새 이미지 반영):
 
