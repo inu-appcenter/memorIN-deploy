@@ -1,13 +1,13 @@
-# memorIN 운영 배포용 Compose (Docker Compose V2).
+# memorIN 운영 배포용 Compose 파일(Docker Compose V2).
 #
-# memorIN-backend/docker-compose.yml(로컬 개발, 소스 빌드)과 달리 이 파일은
-# GHCR에 미리 빌드된 이미지만 pull한다 — 서버에서 Gradle/npm 빌드가 돌지 않는다.
-# backend/frontend 이미지는 각 저장소의 CI(.github/workflows/ci.yml, image job)가
-# main 브랜치 푸시마다 자동으로 올린다.
+# memorIN-backend/docker-compose.yml(로컬 개발용, 소스 빌드)과 달리 이 파일은 GHCR에 미리 빌드된
+# 이미지를 받아 실행만 한다. 서버에서 Gradle이나 npm 빌드를 하지 않는다.
+# backend·frontend 이미지는 main 브랜치에 푸시될 때마다 각 저장소 CI(.github/workflows/ci.yml의
+# image job)가 올린다(README의 '참고 > 이미지 빌드와 태그' 참고).
 #
-# 외부에 열린 인바운드 포트가 없다 — 유일한 진입점은 cloudflared 터널이고,
-# 터널은 서버에서 Cloudflare 엣지로 나가는 아웃바운드 연결만 쓴다(포트 제한 우회, README 참고).
-# 아래 postgres/minio-console 포트는 127.0.0.1에만 바인딩되어 있어 호스트 밖에서는 보이지 않는다.
+# compose가 외부에 여는 인바운드 포트는 없다(서버 SSH는 별개다). 진입점은 cloudflared 터널 하나이고,
+# 터널은 서버에서 Cloudflare 엣지로 나가는 아웃바운드 연결만 쓴다(README의 '참고 > 방화벽 요건' 참고).
+# postgres 포트와 MinIO 콘솔 포트는 127.0.0.1에만 바인딩해 호스트 밖에서는 접근할 수 없다.
 
 x-logging: &default-logging
   driver: json-file
@@ -23,12 +23,12 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-memorin_db}
       POSTGRES_USER: ${POSTGRES_USER:-memorin_user}
-      # 비밀번호·MinIO 계정에는 기본값을 두지 않는다. 이 저장소는 public이라 기본값이 곧 공개된 값이다.
+      # DB 비밀번호와 MinIO 계정에는 기본값을 두지 않는다. 이 저장소는 public이라 기본값이 곧 공개된 값이 된다.
       # .env에 값이 없거나 비어 있으면 ${VAR:?} 문법에 따라 docker compose up과 pull이 에러를 내고 멈춘다.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env에 POSTGRES_PASSWORD를 채워야 한다}
     ports:
-      # DB 포트는 같은 머신의 SSH 터널 + DBeaver 등 로컬 개발툴 전용이다.
-      # 컨테이너 네트워크 안(backend)은 이 매핑과 무관하게 postgres:5432로 접속한다.
+      # 루프백에만 여는 DB 포트다. 서버에 SSH 터널로 들어와 DBeaver 같은 도구로 접속할 때만 쓴다.
+      # backend는 이 매핑과 상관없이 컨테이너 네트워크 안에서 postgres:5432로 접속한다.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
@@ -53,12 +53,13 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
+      # 기본값을 두지 않는 이유는 위 postgres 서비스의 POSTGRES_PASSWORD 주석과 같다.
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?.env에 MINIO_ROOT_USER를 채워야 한다}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?.env에 MINIO_ROOT_PASSWORD를 채워야 한다}
     ports:
-      # S3 API(9000)는 더 이상 호스트에 공개 바인딩하지 않는다 — cloudflared가 컨테이너
-      # 네트워크 안에서 minio:9000으로 직접 붙어 스토리지 전용 호스트네임으로 외부에 낸다.
-      # 관리 콘솔(9001)은 관리자 전용이라 postgres와 같은 이유로 루프백만 연다.
+      # S3 API(9000)는 호스트에 바인딩하지 않는다. cloudflared가 컨테이너 네트워크 안에서 minio:9000에
+      # 직접 연결해 스토리지 전용 호스트네임으로 공개한다.
+      # 관리 콘솔(9001)은 관리자만 쓰므로 postgres와 같은 이유로 루프백에만 연다.
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
@@ -85,10 +86,10 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-memorin_user}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?.env에 POSTGRES_PASSWORD를 채워야 한다}
       MINIO_ENDPOINT: http://minio:9000
-      # 클라이언트(브라우저/앱)가 presigned URL로 직접 접근할 주소. cloudflared가 스토리지 전용
-      # 호스트네임(memorin-storage.<도메인>)을 minio:9000으로 라우팅하므로 그 도메인을 그대로 쓴다.
-      # MinIO는 경로(prefix) 리버스 프록시를 지원하지 않는다 — presigned URL이 SigV4로
-      # 경로까지 서명하기 때문에, 여기 도메인은 반드시 "전용 호스트"여야 한다(서브패스 불가).
+      # 브라우저와 앱이 presigned URL로 직접 접근하는 스토리지 주소다. cloudflared가 스토리지 전용
+      # 호스트네임(memorin-storage.<도메인>)을 minio:9000으로 라우팅하므로 그 주소를 그대로 쓴다.
+      # presigned URL은 SigV4로 경로까지 서명하기 때문에 MinIO를 하위 경로로 리버스 프록시할 수 없다.
+      # 그래서 이 주소는 반드시 전용 호스트네임이어야 한다. 비어 있으면 backend가 기동하지 않는다.
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
       MINIO_REGION: ${MINIO_REGION:-us-east-1}
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?.env에 MINIO_ROOT_USER를 채워야 한다}
@@ -98,7 +99,7 @@ services:
       MINIO_PRESIGNED_UPLOAD_EXPIRY_SECONDS: ${MINIO_PRESIGNED_UPLOAD_EXPIRY_SECONDS:-600}
       MINIO_PRESIGNED_DOWNLOAD_EXPIRY_SECONDS: ${MINIO_PRESIGNED_DOWNLOAD_EXPIRY_SECONDS:-300}
       MINIO_MAX_UPLOAD_SIZE_BYTES: ${MINIO_MAX_UPLOAD_SIZE_BYTES:-52428800}
-      # 서비스 배포 시에는 랜덤 256비트 문자열 사용
+      # .env에 32바이트(256비트) 이상 무작위 문자열을 넣는다. 비어 있거나 짧으면 backend가 기동하지 않는다.
       JWT_SECRET: ${JWT_SECRET}
       JWT_ACCESS_EXPIRY_MS: ${JWT_ACCESS_EXPIRY_MS:-900000}
       JWT_REFRESH_EXPIRY_MS: ${JWT_REFRESH_EXPIRY_MS:-604800000}
@@ -108,14 +109,13 @@ services:
       MEDIA_COMPRESSION_IMAGE_QUALITY_PERCENT: ${MEDIA_COMPRESSION_IMAGE_QUALITY_PERCENT:-80}
       MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX:-1920}
       MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX:-1920}
-      # 기본값을 특정 조직 도메인으로 두지 않는다. .env에 없으면 빈 문자열로 채워져, 브라우저가
-      # Origin을 붙이는 요청(POST·PATCH·DELETE, WebSocket 핸드셰이크)이 전부 403으로 막힌다
-      # (같은 도메인 GET과 네이티브 앱 요청은 영향 없음) — 값을 빼먹었을 때 남의 도메인을 조용히
-      # 물려받는 대신 눈에 띄게 실패시킨다.
-      # frontend nginx는 80에서 받으므로 X-Forwarded-Proto=$scheme(http)를 넘기고, 백엔드는
-      # server.forward-headers-strategy=framework로 이를 반영해 자기 주소를 http://memorin.<도메인>으로
-      # 인식한다. 브라우저 Origin(https://…)과 스킴이 달라 같은 도메인 요청도 교차 출처로 판정되므로,
-      # 이 값에는 https 공개 주소가 정확히 있어야 한다: https://memorin.<도메인>
+      # 기본값을 특정 조직 도메인으로 두지 않는다. .env에 없으면 빈 문자열이 되어, 브라우저가 Origin을
+      # 붙이는 요청(POST·PATCH·DELETE, WebSocket 핸드셰이크)이 모두 403으로 막힌다. 같은 도메인의 GET과
+      # 네이티브 앱 요청은 영향이 없다. 값을 빠뜨리면 남의 도메인이 조용히 적용되는 대신 곧바로 오류로 드러난다.
+      # frontend nginx는 80에서 요청을 받아 X-Forwarded-Proto=$scheme(http)를 넘기고, backend는
+      # server.forward-headers-strategy=framework 설정으로 자기 주소를 http://memorin.<도메인>으로 인식한다.
+      # 브라우저 Origin(https://…)과 스킴이 달라 같은 도메인 요청도 교차 출처로 판정되므로, 이 값에는
+      # https 공개 주소(https://memorin.<도메인>)를 정확히 넣어야 한다.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       FIREBASE_ENABLED: ${FIREBASE_ENABLED:-false}
       FIREBASE_SERVICE_ACCOUNT_PATH: ${FIREBASE_SERVICE_ACCOUNT_PATH:-/run/secrets/firebase-service-account.json}
@@ -123,15 +123,15 @@ services:
       WEB_PUSH_VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
       WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
       WEB_PUSH_VAPID_SUBJECT: ${WEB_PUSH_VAPID_SUBJECT:-mailto:admin@memorin.local}
-      # 힙 상한은 컨테이너 메모리의 75%. 힙덤프는 /dump 볼륨에 남긴다.
-      # OOM이면 반쯤 죽은 채 버티지 말고 즉시 종료 → restart 정책이 다시 띄운다.
+      # 힙 상한은 컨테이너 메모리의 75%다. OOM이 나면 /dump 볼륨에 힙 덤프를 남기고 바로 종료한다.
+      # 응답하지 못하는 상태로 떠 있지 않고 restart 정책이 컨테이너를 다시 띄우게 하려는 설정이다.
       JAVA_TOOL_OPTIONS: >-
         -XX:MaxRAMPercentage=75.0
         -XX:+HeapDumpOnOutOfMemoryError
         -XX:HeapDumpPath=/dump/heapdump.hprof
         -XX:+ExitOnOutOfMemoryError
-    # 8080을 호스트에 공개하지 않는다 — frontend(nginx)가 컨테이너 네트워크 안에서
-    # backend:8080으로 프록시하고, 외부에는 frontend가 낸 단일 도메인만 보인다.
+    # 8080은 호스트에 공개하지 않는다. frontend(nginx)가 컨테이너 네트워크 안에서 backend:8080으로
+    # 프록시하므로 backend는 웹 도메인의 /api, /auth, /ws 경로로만 외부에 드러난다.
     volumes:
       - heapdumps:/dump
       - ./secrets:/run/secrets:ro
@@ -147,7 +147,7 @@ services:
     networks:
       - memorin_network
     # /api/health는 인증 없이 열려 있고 DB 연결까지 확인한다.
-    # start_period 30초: Flyway 마이그레이션 + JPA 스키마 검증 포함 기동 시간에 여유를 둔다.
+    # start_period가 30초인 이유는 Flyway 마이그레이션과 JPA 스키마 검증까지 마치는 데 시간이 걸리기 때문이다.
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 10s
@@ -161,13 +161,14 @@ services:
     container_name: memorin_frontend
     restart: unless-stopped
     environment:
-      # nginx가 시작 시 이 값으로 /api, /auth, /ws 프록시 대상과 config.json을 만든다.
-      # 컨테이너 네트워크 안이므로 서비스명으로 접근 — 호스트나 외부 도메인이 아니다.
+      # nginx가 기동할 때 이 값으로 /api, /auth, /ws의 프록시 대상을 채운다.
+      # 컨테이너 네트워크 안의 주소라 서비스 이름(backend)을 쓴다. 호스트 주소나 외부 도메인을 넣지 않는다.
       BACKEND_ORIGIN: http://backend:8080
-      # 백엔드 WEB_PUSH_VAPID_PUBLIC_KEY와 반드시 같은 값이어야 한다(불일치 시 발송 403).
+      # 기동할 때 /config.json에 들어가 브라우저의 웹 푸시 구독에 쓰인다. backend의 WEB_PUSH_VAPID_PUBLIC_KEY를
+      # 그대로 넘긴다. 두 값이 다르면 발송이 403으로 실패하므로 따로 지정하지 않는다.
       VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
-    # 포트를 호스트에 공개하지 않는다 — cloudflared가 컨테이너 네트워크 안에서
-    # frontend:80으로 붙어 공개 도메인(memorin.<도메인>)을 낸다.
+    # 포트는 호스트에 공개하지 않는다. cloudflared가 컨테이너 네트워크 안에서 frontend:80에 연결해
+    # 웹 도메인(memorin.<도메인>)으로 공개한다.
     depends_on:
       backend:
         condition: service_healthy
@@ -181,14 +182,14 @@ services:
       start_period: 10s
     logging: *default-logging
 
-  # 서버에 인바운드 포트를 하나도 열지 않고 공개 도메인을 내기 위한 역방향 터널.
-  # cloudflared는 서버 → Cloudflare 엣지로 나가는 아웃바운드 연결만 맺는다(포트 7844).
-  # 443으로는 대체할 수 없다 — 7844는 cloudflared 자체의 필수 요건이고, 443은 자동 업데이트
-  # 등 선택 기능용이다. 기관망이 UDP를 막는 경우가 흔해 http2(TCP)로 고정한다.
-  # 도메인 ↔ 컨테이너 매핑(ingress)은 Cloudflare Zero Trust 대시보드에서 관리한다(README 참고):
+  # 서버에 인바운드 포트를 열지 않고 공개 도메인을 연결하는 역방향 터널이다.
+  # cloudflared는 서버에서 Cloudflare 엣지로 나가는 아웃바운드 연결(포트 7844)만 맺는다.
+  # 7844는 cloudflared의 필수 포트라 443으로 대신할 수 없다. 443은 자동 업데이트 같은 선택 기능에만 쓴다.
+  # 기관망은 UDP를 막는 경우가 많아 http2(TCP)로 고정한다.
+  # 도메인과 컨테이너의 연결(ingress)은 Cloudflare 대시보드의 Networking > Tunnels에서 관리한다(README 참고).
   #   memorin.<도메인>         → http://frontend:80
   #   memorin-storage.<도메인> → http://minio:9000
-  # 스토리지를 storage.memorin.<도메인>처럼 두 단계로 두지 않는 이유는 README 참고.
+  # 스토리지를 storage.memorin.<도메인>처럼 2단계 서브도메인으로 두지 않는 이유는 README에 있다.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: memorin_cloudflared
@@ -206,8 +207,8 @@ services:
       - memorin_network
     logging: *default-logging
 
-# 컨테이너가 삭제되더라도 postgres, minio 데이터는 남는다.
-# docker compose down -v 를 실행하면 데이터도 함께 삭제된다.
+# 컨테이너를 지워도 postgres·minio 데이터와 힙 덤프는 볼륨에 남는다.
+# docker compose down -v는 볼륨까지 지우므로 데이터도 함께 사라진다.
 volumes:
   postgres_data:
   minio_data:
