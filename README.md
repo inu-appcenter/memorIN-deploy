@@ -257,10 +257,14 @@ docker compose up -d
 전에는 직접 백업한다.
 
 ```sh
-# DB 백업. 기본값을 바꿨다면 사용자와 DB 이름을 .env 값으로 바꾼다
-docker compose exec -T postgres pg_dump -U memorin_user -Fc memorin_db > memorin-$(date +%F).dump
+# DB 백업. 덤프는 이 저장소 폴더가 아니라 저장소 밖에 둔다.
+# 기본값을 바꿨다면 사용자와 DB 이름을 .env 값으로 바꾼다
+mkdir -p ~/memorin-backups && chmod 700 ~/memorin-backups
+docker compose exec -T postgres pg_dump -U memorin_user -Fc memorin_db > ~/memorin-backups/memorin-$(date +%F).dump
 ```
 
+- 덤프에는 사용자 정보와 비밀번호 해시가 들어 있다. 이 저장소는 공개 저장소라서 덤프를 저장소 폴더 안에 두지 않는다.
+  실수로 커밋되지 않도록 `.gitignore`에도 `*.dump`, `*.sql`, `*.sql.gz`를 넣어 두었다.
 - 업로드 파일(MinIO) 백업 방법, 복원 절차, 백업 보관 위치는 아직 정하지 않았다(확인 필요).
 - `docker compose down -v`는 `postgres_data`, `minio_data` 볼륨까지 지우므로 운영 서버에서 쓰지 않는다.
   실제 볼륨 이름 앞에는 compose 프로젝트 이름(기본값은 디렉터리 이름)이 붙는다. 예: `memorin-deploy_postgres_data`
