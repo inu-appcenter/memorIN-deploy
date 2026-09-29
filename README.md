@@ -203,7 +203,9 @@ docker compose up -d
 - `docker compose pull`은 cloudflared의 `latest` 이미지도 새로 받는다. 앱만 올릴 때는
   `docker compose pull backend frontend`를 쓴다.
 - MinIO(Silo)는 버전을 고정해 두었으므로 자동으로 올라가지 않는다. 올릴 때는 Silo 보안 권고
-  (https://silo.pgsty.com/about/security-advisories/)를 확인하고 `compose.yaml`의 태그와 digest를 함께 바꾼다.
+  (https://silo.pgsty.com/about/security-advisories/)와 릴리스 노트를 확인하고 `compose.yaml`의 태그와 digest를 함께 바꾼다.
+  이미지는 태그에 `-distroless`가 붙지 않은 클래식 이미지를 쓴다. distroless 이미지에는 헬스체크가 쓰는 `mc`가 없다.
+  digest는 `docker buildx imagetools inspect docker.io/pgsty/silo:<태그>`의 `Digest` 줄에 나오는 값을 쓴다.
 - 롤백하면서 `.env`의 `BACKEND_TAG`, `FRONTEND_TAG`를 `sha-` 태그로 고정해 두었다면, 먼저 `latest`로 되돌려야
   새 이미지를 받는다.
 - 이전 이미지는 `docker image prune`으로 정리한다.
