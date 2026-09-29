@@ -5,9 +5,10 @@
 # backend와 frontend 이미지는 main 브랜치에 푸시될 때마다 각 저장소 CI(.github/workflows/ci.yml의
 # image job)가 올린다(README의 '참고 > 이미지 빌드와 태그' 참고).
 #
-# compose가 외부에 여는 인바운드 포트는 없다(서버 SSH는 별개다). 진입점은 cloudflared 터널 하나이고,
-# 터널은 서버에서 Cloudflare 엣지로 나가는 아웃바운드 연결만 쓴다(README의 '참고 > 방화벽 요건' 참고).
-# postgres 포트와 MinIO 콘솔 포트는 127.0.0.1에만 바인딩해 호스트 밖에서는 접근할 수 없다.
+# 앱센터 공용 서버의 표준 방식(Caddy 리버스 프록시 + Cloudflare DNS)을 쓴다. frontend와 minio는
+# 127.0.0.1에만 포트를 열고, 같은 서버에서 도는 공용 Caddy가 도메인별로 그 포트에 연결한다(README의
+# '리버스 프록시(Caddy) 설정' 참고). postgres 포트와 MinIO 콘솔 포트도 127.0.0.1에만 바인딩해
+# 호스트 밖에서는 접근할 수 없다.
 
 x-logging: &default-logging
   driver: json-file
@@ -60,9 +61,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?.env에 MINIO_ROOT_USER를 채워야 한다}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?.env에 MINIO_ROOT_PASSWORD를 채워야 한다}
     ports:
-      # S3 API(9000)는 호스트에 바인딩하지 않는다. cloudflared가 컨테이너 네트워크 안에서 minio:9000에
-      # 직접 연결해 스토리지 전용 호스트네임으로 공개한다.
-      # 관리 콘솔(9001)은 관리자만 쓰므로 postgres와 같은 이유로 루프백에만 연다.
+      # S3 API(9000)는 루프백에만 연다. 공용 Caddy가 같은 서버에서 이 포트로 리버스 프록시해
+      # 스토리지 전용 호스트네임(MINIO_S3_PORT, README 참고)으로 공개한다. 호스트 밖에는 안 열린다.
+      # 관리 콘솔(9001)은 관리자만 쓰므로 같은 이유로 루프백에만 연다.
+      - "127.0.0.1:${MINIO_S3_PORT:?.env에 MINIO_S3_PORT를 채워야 한다 — 공용 Caddy와 겹치지 않는 포트를 고른다}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
@@ -89,8 +91,9 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-memorin_user}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?.env에 POSTGRES_PASSWORD를 채워야 한다}
       MINIO_ENDPOINT: http://minio:9000
-      # 브라우저와 앱이 presigned URL로 직접 접근하는 스토리지 주소다. cloudflared가 스토리지 전용
-      # 호스트네임(memorin-storage.<도메인>)을 minio:9000으로 라우팅하므로 그 주소를 그대로 쓴다.
+      # 브라우저와 앱이 presigned URL로 직접 접근하는 스토리지 주소다. 공용 Caddy가 스토리지 전용
+      # 호스트네임(memorin-storage.<도메인>)을 127.0.0.1:${MINIO_S3_PORT}로 리버스 프록시하므로
+      # 그 주소를 그대로 쓴다.
       # presigned URL은 SigV4로 경로까지 서명하기 때문에 MinIO를 하위 경로로 리버스 프록시할 수 없다.
       # 그래서 이 주소는 반드시 전용 호스트네임이어야 한다. 비어 있으면 backend가 기동하지 않는다.
       MINIO_PUBLIC_ENDPOINT: ${MINIO_PUBLIC_ENDPOINT}
@@ -134,7 +137,7 @@ services:
         -XX:HeapDumpPath=/dump/heapdump.hprof
         -XX:+ExitOnOutOfMemoryError
     # 8080은 호스트에 공개하지 않는다. frontend(nginx)가 컨테이너 네트워크 안에서 backend:8080으로
-    # 프록시하므로 backend는 웹 도메인의 /api, /auth, /ws 경로로만 외부에 드러난다.
+    # 프록시하므로 backend는 frontend가 여는 웹 도메인의 /api, /auth, /ws 경로로만 외부에 드러난다.
     volumes:
       - heapdumps:/dump
       - ./secrets:/run/secrets:ro
@@ -170,8 +173,10 @@ services:
       # 기동할 때 /config.json에 들어가 브라우저의 웹 푸시 구독에 쓰인다. backend의 WEB_PUSH_VAPID_PUBLIC_KEY를
       # 그대로 넘긴다. 두 값이 다르면 발송이 403으로 실패하므로 따로 지정하지 않는다.
       VAPID_PUBLIC_KEY: ${WEB_PUSH_VAPID_PUBLIC_KEY:-}
-    # 포트는 호스트에 공개하지 않는다. cloudflared가 컨테이너 네트워크 안에서 frontend:80에 연결해
-    # 웹 도메인(memorin.<도메인>)으로 공개한다.
+    ports:
+      # 루프백에만 연다. 공용 Caddy가 같은 서버에서 이 포트로 리버스 프록시해
+      # 웹 도메인(memorin.<도메인>, README 참고)으로 공개한다. 호스트 밖에는 안 열린다.
+      - "127.0.0.1:${FRONTEND_PORT:?.env에 FRONTEND_PORT를 채워야 한다 — 공용 Caddy와 겹치지 않는 포트를 고른다}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -183,31 +188,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    logging: *default-logging
-
-  # 서버에 인바운드 포트를 열지 않고 공개 도메인을 연결하는 역방향 터널이다.
-  # cloudflared는 서버에서 Cloudflare 엣지로 나가는 아웃바운드 연결(포트 7844)만 맺는다.
-  # 7844는 cloudflared의 필수 포트라 443으로 대신할 수 없다. 443은 자동 업데이트 같은 선택 기능에만 쓴다.
-  # 기관망은 UDP를 막는 경우가 많아 http2(TCP)로 고정한다.
-  # 도메인과 컨테이너의 연결(ingress)은 Cloudflare 대시보드의 Networking > Tunnels에서 관리한다(README 참고).
-  #   memorin.<도메인>         -> http://frontend:80
-  #   memorin-storage.<도메인> -> http://minio:9000
-  # 스토리지를 storage.memorin.<도메인>처럼 2단계 서브도메인으로 두지 않는 이유는 README에 있다.
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: memorin_cloudflared
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-      TUNNEL_TRANSPORT_PROTOCOL: http2
-    depends_on:
-      frontend:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    networks:
-      - memorin_network
     logging: *default-logging
 
 # 컨테이너를 지워도 postgres와 minio 데이터, 힙 덤프는 볼륨에 남는다.
