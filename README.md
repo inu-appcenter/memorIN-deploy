@@ -104,8 +104,9 @@ docker manifest inspect minio/minio:latest
   docker login ghcr.io -u <GitHub 사용자명>   # 비밀번호 자리에 토큰을 넣는다
   ```
 
-- 2026-09-28 기준 `minio/minio:latest`는 익명으로 조회하면 `denied`가 나와 받을 수 없다(날짜가 붙은 릴리스 태그도
-  같다). 원인은 아직 확인하지 못했다. 이 상태가 풀리거나 팀이 다른 MinIO 이미지로 바꾸기 전까지는 배포가 여기서 막힌다.
+- `minio/minio`는 2026-09 Docker Hub에서 삭제돼 받을 수 없다. MinIO가 커뮤니티판 배포를 끝냈기 때문이다.
+  대체 이미지를 정해 `compose.yaml`에 반영하기 전까지는 배포가 여기서 막힌다
+  ([#6](https://github.com/inu-appcenter/memorIN-deploy/issues/6)).
 
 ## 배포
 
