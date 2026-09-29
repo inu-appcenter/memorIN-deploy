@@ -85,9 +85,9 @@ secrets/                        # firebase-service-account.json 등. 안의 파�
 4. Cloudflare DNS 대시보드에서 두 호스트네임을 서버의 공인 IP로 등록한다(A 레코드, 프록시 켜짐). 이미
    같은 이름의 레코드가 있으면 실패하므로, 공유 존에서 이름이 비어 있는지 먼저 확인한다(사전 준비 > 2 참고).
    다른 프로젝트가 쓰는 레코드는 예시로만 참고하고 수정하지 않는다.
-5. Cloudflare SSL/TLS 모드가 **Full(strict)**인지 확인한다(SSL/TLS > Overview). Flexible이면 Cloudflare가
-   서버에 http로 붙고 Caddy가 다시 https로 돌려보내면서 리디렉션이 반복된다. 이 모드는 **존 전체에
-   적용되는 공유 설정**이라, 다른 프로젝트가 이미 쓰고 있는 값이 있을 수 있다. 바로 바꾸지 말고, 먼저
+5. Cloudflare SSL/TLS 모드가 Full(strict)인지 확인한다(SSL/TLS > Overview). Flexible이면 Cloudflare가
+   서버에 http로 붙고 Caddy가 다시 https로 돌려보내면서 리디렉션이 반복된다. 이 모드는 존 전체에
+   적용되는 공유 설정이라, 다른 프로젝트가 이미 쓰고 있는 값이 있을 수 있다. 바로 바꾸지 말고, 먼저
    지금 어떤 모드인지 확인하고 바꿔도 되는지 앱센터에 물어본다.
 
 ### 4. 이미지를 받을 수 있는지 확인
