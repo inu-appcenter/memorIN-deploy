@@ -48,7 +48,10 @@ services:
           memory: ${POSTGRES_MEMORY_LIMIT:-512m}
 
   minio:
-    image: minio/minio:latest
+    # MinIO 공식 이미지(minio/minio)는 2026-09 Docker Hub에서 삭제됐다. MinIO 커뮤니티 포크인
+    # Silo(pgsty/silo, AGPL-3.0)를 쓴다. 설정, 환경변수, 데이터 형식, mc 헬스체크는 MinIO와 같다(#6).
+    # latest를 쓰지 않고 태그와 digest로 고정한다. 올릴 때는 둘을 함께 바꾼다.
+    image: docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
     container_name: memorin_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

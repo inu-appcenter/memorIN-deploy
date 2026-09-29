@@ -90,7 +90,7 @@ compose가 쓰는 이미지 중 하나라도 받지 못하면 `docker compose pu
 ```sh
 docker manifest inspect ghcr.io/inu-appcenter/memorin-backend:latest
 docker manifest inspect ghcr.io/inu-appcenter/memorin-frontend:latest
-docker manifest inspect minio/minio:latest
+docker manifest inspect docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
 ```
 
 - `denied`가 나오면 이미지가 아직 없거나 패키지가 비공개다. 로그인하지 않은 상태에서는 둘을 구분할 수 없으니 GitHub 조직의
@@ -104,9 +104,11 @@ docker manifest inspect minio/minio:latest
   docker login ghcr.io -u <GitHub 사용자명>   # 비밀번호 자리에 토큰을 넣는다
   ```
 
-- `minio/minio`는 2026-09 Docker Hub에서 삭제돼 받을 수 없다. MinIO가 커뮤니티판 배포를 끝냈기 때문이다.
-  대체 이미지를 정해 `compose.yaml`에 반영하기 전까지는 배포가 여기서 막힌다
-  ([#6](https://github.com/inu-appcenter/memorIN-deploy/issues/6)).
+- MinIO 공식 이미지(`minio/minio`)는 MinIO가 커뮤니티판 배포를 끝내면서 2026-09 Docker Hub에서 삭제됐다.
+  이 저장소는 MinIO 커뮤니티 포크인 Silo(`pgsty/silo`)를 버전과 digest로 고정해 쓴다. 설정, 환경변수, 데이터 형식은
+  MinIO와 같다([#6](https://github.com/inu-appcenter/memorIN-deploy/issues/6)).
+- Docker Hub는 로그인하지 않은 다운로드를 IP당 시간당 100회로 제한한다. Silo, postgres, cloudflared가 모두
+  Docker Hub에서 받아지므로, pull이 `toomanyrequests`로 실패하면 서버에서 `docker login`을 한 뒤 다시 받는다.
 
 ## 배포
 
@@ -198,8 +200,12 @@ docker compose up -d
 ```
 
 - `git pull` 뒤에는 `.env.example`에 새 필수값이 생겼는지 `.env`와 비교한다.
-- `docker compose pull`은 minio와 cloudflared의 `latest` 이미지도 새로 받는다. 앱만 올릴 때는
+- `docker compose pull`은 cloudflared의 `latest` 이미지도 새로 받는다. 앱만 올릴 때는
   `docker compose pull backend frontend`를 쓴다.
+- MinIO(Silo)는 버전을 고정해 두었으므로 자동으로 올라가지 않는다. 올릴 때는 Silo 보안 권고
+  (https://silo.pgsty.com/about/security-advisories/)와 릴리스 노트를 확인하고 `compose.yaml`의 태그와 digest를 함께 바꾼다.
+  이미지는 태그에 `-distroless`가 붙지 않은 클래식 이미지를 쓴다. distroless 이미지에는 헬스체크가 쓰는 `mc`가 없다.
+  digest는 `docker buildx imagetools inspect docker.io/pgsty/silo:<태그>`의 `Digest` 줄에 나오는 값을 쓴다.
 - 롤백하면서 `.env`의 `BACKEND_TAG`, `FRONTEND_TAG`를 `sha-` 태그로 고정해 두었다면, 먼저 `latest`로 되돌려야
   새 이미지를 받는다.
 - 이전 이미지는 `docker image prune`으로 정리한다.
@@ -337,4 +343,4 @@ pgAdmin을 포함하며, 포트를 호스트에 그대로 연다. 이 저장소�
 - 애플리케이션 코드는 각 저장소의 라이선스를 따른다. `memorIN-backend`는 AGPL-3.0, `memorIN-frontend`는 MIT로
   정했지만, 두 저장소에는 아직 `LICENSE` 파일이 없다(backend [#234](https://github.com/inu-appcenter/memorIN-backend/issues/234),
   frontend [#99](https://github.com/inu-appcenter/memorIN-frontend/issues/99)에서 추가 예정).
-- 이 구성이 받아 쓰는 외부 이미지(PostgreSQL, MinIO, cloudflared 등)는 각자의 라이선스를 따른다.
+- 이 구성이 받아 쓰는 외부 이미지(PostgreSQL, Silo, cloudflared 등)는 각자의 라이선스를 따른다. Silo는 AGPL-3.0이다.
