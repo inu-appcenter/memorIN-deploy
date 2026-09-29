@@ -77,18 +77,51 @@ secrets/                        # firebase-service-account.json 등. 안의 파�
 
    presigned PUT은 업로드 크기를 서명하지 않아서([memorIN-backend#296](https://github.com/inu-appcenter/memorIN-backend/issues/296)),
    지금은 프록시가 켜진 Cloudflare의 요청 본문 100MB 제한이 사실상의 업로드 크기 상한이다. 나중에 이
-   도메인의 DNS 프록시를 끄게 되면, 스토리지 블록에 `request_body { max_size <크기> }`를 추가해
-   `MINIO_MAX_UPLOAD_SIZE_BYTES`와 맞는 값으로 제한해야 한다.
+   도메인의 DNS 프록시를 끄게 되면, 스토리지 블록에 아래처럼 `request_body`를 추가해 제한해야 한다.
+
+   ```caddyfile
+   memorin-storage.inuappcenter.kr {
+       request_body {
+           max_size 50MiB
+       }
+       reverse_proxy localhost:<MINIO_S3_PORT>
+   }
+   ```
+
+   `50MiB`는 `MINIO_MAX_UPLOAD_SIZE_BYTES` 기본값 52428800과 같은 값이다. Caddy는 `MB`를 1000 단위로,
+   `MiB`를 1024 단위로 읽으므로 `50MB`로 쓰면 상한보다 작아진다. 이 값을 바꿨다면 같은 크기로 맞춘다.
+   한도를 넘은 요청에 413을 돌려주는 것은 Caddy 2.7.0부터이고, 그 전 버전은 502를 준다. 서버의 Caddy
+   버전은 `caddy version`으로 확인한다.
 
 3. 설정을 반영한다(서버에 이미 Caddy가 서비스로 떠 있다면 보통 `sudo systemctl reload caddy` 계열 명령이다.
    정확한 방법은 서버 관리자나 기존 배포 사례를 따른다).
 4. Cloudflare DNS 대시보드에서 두 호스트네임을 서버의 공인 IP로 등록한다(A 레코드, 프록시 켜짐). 이미
    같은 이름의 레코드가 있으면 실패하므로, 공유 존에서 이름이 비어 있는지 먼저 확인한다(사전 준비 > 2 참고).
    다른 프로젝트가 쓰는 레코드는 예시로만 참고하고 수정하지 않는다.
-5. Cloudflare SSL/TLS 모드가 Full(strict)인지 확인한다(SSL/TLS > Overview). Flexible이면 Cloudflare가
-   서버에 http로 붙고 Caddy가 다시 https로 돌려보내면서 리디렉션이 반복된다. 이 모드는 존 전체에
-   적용되는 공유 설정이라, 다른 프로젝트가 이미 쓰고 있는 값이 있을 수 있다. 바로 바꾸지 말고, 먼저
-   지금 어떤 모드인지 확인하고 바꿔도 되는지 앱센터에 물어본다.
+5. 두 호스트네임에 적용되는 Cloudflare SSL/TLS 모드가 Full(strict)인지 확인한다. Flexible이면 Cloudflare가
+   서버에 http로 붙고 Caddy가 다시 https로 돌려보내면서 리디렉션이 반복된다. 두 곳을 본다.
+
+   - SSL/TLS > Overview: 존 전체에 적용되는 값이다. 새 존은 Automatic SSL/TLS로 되어 있을 수 있다.
+     다른 프로젝트도 함께 쓰는 공유 설정이라 바로 바꾸지 않는다.
+   - Rules: 두 호스트네임에 걸린 Configuration Rule이나 Page Rule이 있는지 본다. 규칙의 SSL 설정은 존
+     설정보다 우선한다.
+
+   존 값을 바꾸지 않고 memorIN 두 호스트네임만 Full(strict)로 둘 수도 있다. Rules > Overview > Create rule >
+   Configuration Rule에서 조건에 Hostname equals `memorin.inuappcenter.kr`와 Hostname equals
+   `memorin-storage.inuappcenter.kr`를 Or로 이어 넣고, 설정 SSL에서 Strict를 고른다. Strict가 존 설정의
+   Full(strict)에 해당하고, Origin Pull은 다른 모드다. Free 요금제에서도 쓸 수 있다(규칙 10개까지). 어느
+   쪽으로 할지는 지금 값을 확인한 뒤 앱센터에 물어본다.
+6. Always Use HTTPS(SSL/TLS > Edge Certificates)가 켜져 있는지도 SSL/TLS 모드와 함께 앱센터에 확인한다.
+   켜져 있으면 Caddy가 두 호스트네임의 인증서를 처음 받을 때 실패할 수 있다. HTTP-01 검증 요청을
+   Cloudflare가 https로 돌려보내는데 서버에는 아직 인증서가 없고, TLS-ALPN-01 검증은 Cloudflare 프록시
+   뒤에서 동작하지 않기 때문이다. 같은 서버의 다른 사이트가 이미 프록시 뒤에서 잘 돌고 있다면 문제없을
+   가능성이 높다. Caddy 로그에 발급 오류가 계속 나오면 아래 중 하나를 앱센터와 정해 쓴다. 셋 다 공유 존이나
+   공용 Caddy를 건드리는 일이다.
+
+   - Always Use HTTPS를 끄고, 인증서 검증 경로(`/.well-known/`)를 뺀 Redirect Rule로 https 리디렉션을 한다.
+     조건 예: `(http.request.scheme eq "http") and not starts_with(http.request.uri.path, "/.well-known/")`
+   - 첫 발급 때만 두 DNS 레코드의 프록시를 끄고, 인증서를 받은 뒤 다시 켠다.
+   - DNS-01 검증으로 받는다. Caddy에 Cloudflare DNS 모듈과 API 토큰이 있어야 한다.
 
 ### 4. 이미지를 받을 수 있는지 확인
 
