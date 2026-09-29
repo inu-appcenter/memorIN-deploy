@@ -2,7 +2,7 @@
 #
 # memorIN-backend/docker-compose.yml(로컬 개발용, 소스 빌드)과 달리 이 파일은 GHCR에 미리 빌드된
 # 이미지를 받아 실행만 한다. 서버에서 Gradle이나 npm 빌드를 하지 않는다.
-# backend·frontend 이미지는 main 브랜치에 푸시될 때마다 각 저장소 CI(.github/workflows/ci.yml의
+# backend와 frontend 이미지는 main 브랜치에 푸시될 때마다 각 저장소 CI(.github/workflows/ci.yml의
 # image job)가 올린다(README의 '참고 > 이미지 빌드와 태그' 참고).
 #
 # compose가 외부에 여는 인바운드 포트는 없다(서버 SSH는 별개다). 진입점은 cloudflared 터널 하나이고,
@@ -110,11 +110,11 @@ services:
       MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_WIDTH_PX:-1920}
       MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX: ${MEDIA_COMPRESSION_IMAGE_MAX_HEIGHT_PX:-1920}
       # 기본값을 특정 조직 도메인으로 두지 않는다. .env에 없으면 빈 문자열이 되어, 브라우저가 Origin을
-      # 붙이는 요청(POST·PATCH·DELETE, WebSocket 핸드셰이크)이 모두 403으로 막힌다. 같은 도메인의 GET과
+      # 붙이는 요청(POST, PATCH, DELETE와 WebSocket 핸드셰이크)이 모두 403으로 막힌다. 같은 도메인의 GET과
       # 네이티브 앱 요청은 영향이 없다. 값을 빠뜨리면 남의 도메인이 조용히 적용되는 대신 곧바로 오류로 드러난다.
       # frontend nginx는 80에서 요청을 받아 X-Forwarded-Proto=$scheme(http)를 넘기고, backend는
       # server.forward-headers-strategy=framework 설정으로 자기 주소를 http://memorin.<도메인>으로 인식한다.
-      # 브라우저 Origin(https://…)과 스킴이 달라 같은 도메인 요청도 교차 출처로 판정되므로, 이 값에는
+      # 브라우저 Origin(https://...)과 스킴이 달라 같은 도메인 요청도 교차 출처로 판정되므로, 이 값에는
       # https 공개 주소(https://memorin.<도메인>)를 정확히 넣어야 한다.
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       FIREBASE_ENABLED: ${FIREBASE_ENABLED:-false}
@@ -187,8 +187,8 @@ services:
   # 7844는 cloudflared의 필수 포트라 443으로 대신할 수 없다. 443은 자동 업데이트 같은 선택 기능에만 쓴다.
   # 기관망은 UDP를 막는 경우가 많아 http2(TCP)로 고정한다.
   # 도메인과 컨테이너의 연결(ingress)은 Cloudflare 대시보드의 Networking > Tunnels에서 관리한다(README 참고).
-  #   memorin.<도메인>         → http://frontend:80
-  #   memorin-storage.<도메인> → http://minio:9000
+  #   memorin.<도메인>         -> http://frontend:80
+  #   memorin-storage.<도메인> -> http://minio:9000
   # 스토리지를 storage.memorin.<도메인>처럼 2단계 서브도메인으로 두지 않는 이유는 README에 있다.
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -207,7 +207,7 @@ services:
       - memorin_network
     logging: *default-logging
 
-# 컨테이너를 지워도 postgres·minio 데이터와 힙 덤프는 볼륨에 남는다.
+# 컨테이너를 지워도 postgres와 minio 데이터, 힙 덤프는 볼륨에 남는다.
 # docker compose down -v는 볼륨까지 지우므로 데이터도 함께 사라진다.
 volumes:
   postgres_data:

@@ -1,10 +1,10 @@
 # memorIN-deploy
 
-`memorIN`의 **운영 배포 전용** 저장소다. 앱 소스는 [`memorIN-backend`](https://github.com/inu-appcenter/memorIN-backend)와
+`memorIN`의 운영 배포 전용 저장소다. 앱 소스는 [`memorIN-backend`](https://github.com/inu-appcenter/memorIN-backend)와
 [`memorIN-frontend`](https://github.com/inu-appcenter/memorIN-frontend)에 있고, 이 저장소에는 두 앱의
 GHCR 이미지를 묶어 `docker compose`로 띄우는 설정만 둔다.
 
-이 저장소는 **공개**되어 있다. `.env`와 `secrets/` 안의 파일은 `.gitignore`로 제외해 두었으니,
+이 저장소는 공개되어 있다. `.env`와 `secrets/` 안의 파일은 `.gitignore`로 제외해 두었으니,
 `git add -f` 등으로 억지로 커밋하지 않도록 주의한다.
 
 ## 배포 방식 요약
@@ -64,14 +64,14 @@ secrets/                        # firebase-service-account.json 등. 안의 파�
 
 ### 3. Cloudflare Tunnel 만들기와 호스트네임 연결
 
-Cloudflare 대시보드의 **Networking > Tunnels**에서 진행한다
+Cloudflare 대시보드의 Networking > Tunnels에서 진행한다
 ([Cloudflare 문서](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/get-started/create-remote-tunnel/)).
 
-1. **Create a tunnel**을 누르고 터널 이름을 정한다.
+1. Create a tunnel을 누르고 터널 이름을 정한다.
 2. 화면에 나오는 설치 명령에서 `--token` 뒤의 문자열이 터널 토큰이다. 따로 보관해 두었다가 배포 단계에서
    `.env`의 `CLOUDFLARE_TUNNEL_TOKEN`에 넣는다. 설치 명령은 서버에서 실행하지 않는다. cloudflared는 compose가 띄운다.
-3. 커넥터 연결을 기다리는 화면은 그대로 두고 나와, **Tunnels** 목록에서 만든 터널을 선택한다(연결 없이
-   이렇게 넘어가도 되는지는 확인 필요). **Routes** 탭에서 **Add route > Published application**으로 아래 두 경로를 추가한다.
+3. 커넥터 연결을 기다리는 화면은 그대로 두고 나와, Tunnels 목록에서 만든 터널을 선택한다(연결 없이
+   이렇게 넘어가도 되는지는 확인 필요). Routes 탭에서 Add route > Published application으로 아래 두 경로를 추가한다.
 
    | Hostname | Service URL |
    |---|---|
@@ -289,7 +289,7 @@ ssh -N -L 15432:127.0.0.1:5432 -L 9001:127.0.0.1:9001 <사용자>@<서버IP>
 `frontend`나 `minio` 컨테이너로 전달된다. 그래서 방화벽이 인바운드를 모두 막아도 아웃바운드 포트 하나만 열려
 있으면 서비스할 수 있다.
 
-- **열어야 할 포트는 아웃바운드 TCP 7844 하나다.** `cloudflared`는 기본적으로 QUIC(UDP 7844)을 먼저 쓰고, 안 되면
+- 열어야 할 포트는 아웃바운드 TCP 7844 하나다. `cloudflared`는 기본적으로 QUIC(UDP 7844)을 먼저 쓰고, 안 되면
   HTTP/2(TCP 7844)로 바꿔 연결한다. 기관망은 UDP를 막는 경우가 많아 `compose.yaml`의 `cloudflared` 서비스는
   `TUNNEL_TRANSPORT_PROTOCOL: http2`로 TCP만 쓰게 고정해 두었다.
 - 443은 자동 업데이트 확인 같은 부가 기능에만 쓰이고 터널 연결에는 필요 없다
