@@ -70,11 +70,25 @@ secrets/                        # firebase-service-account.json 등. 안의 파�
    }
    ```
 
+   스토리지 블록은 이 형태를 그대로 유지한다. `handle_path`로 경로를 자르거나 `header_up Host`로 Host를
+   바꾸지 않는다. presigned URL은 SigV4로 호스트와 경로까지 서명하므로, 둘 중 하나라도 바뀌면
+   `SignatureDoesNotMatch`가 난다. CORS 헤더도 Caddy에서 따로 붙이지 않는다. Silo가 이미 CORS를
+   처리하므로, 헤더가 중복되면 브라우저가 요청을 거부한다.
+
+   presigned PUT은 업로드 크기를 서명하지 않아서([memorIN-backend#296](https://github.com/inu-appcenter/memorIN-backend/issues/296)),
+   지금은 프록시가 켜진 Cloudflare의 요청 본문 100MB 제한이 사실상의 업로드 크기 상한이다. 나중에 이
+   도메인의 DNS 프록시를 끄게 되면, 스토리지 블록에 `request_body { max_size <크기> }`를 추가해
+   `MINIO_MAX_UPLOAD_SIZE_BYTES`와 맞는 값으로 제한해야 한다.
+
 3. 설정을 반영한다(서버에 이미 Caddy가 서비스로 떠 있다면 보통 `sudo systemctl reload caddy` 계열 명령이다.
    정확한 방법은 서버 관리자나 기존 배포 사례를 따른다).
 4. Cloudflare DNS 대시보드에서 두 호스트네임을 서버의 공인 IP로 등록한다(A 레코드, 프록시 켜짐). 이미
    같은 이름의 레코드가 있으면 실패하므로, 공유 존에서 이름이 비어 있는지 먼저 확인한다(사전 준비 > 2 참고).
    다른 프로젝트가 쓰는 레코드는 예시로만 참고하고 수정하지 않는다.
+5. Cloudflare SSL/TLS 모드가 **Full(strict)**인지 확인한다(SSL/TLS > Overview). Flexible이면 Cloudflare가
+   서버에 http로 붙고 Caddy가 다시 https로 돌려보내면서 리디렉션이 반복된다. 이 모드는 **존 전체에
+   적용되는 공유 설정**이라, 다른 프로젝트가 이미 쓰고 있는 값이 있을 수 있다. 바로 바꾸지 말고, 먼저
+   지금 어떤 모드인지 확인하고 바꿔도 되는지 앱센터에 물어본다.
 
 ### 4. 이미지를 받을 수 있는지 확인
 
@@ -100,8 +114,9 @@ docker manifest inspect docker.io/pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256
 - MinIO 공식 이미지(`minio/minio`)는 MinIO가 커뮤니티판 배포를 끝내면서 2026-09 Docker Hub에서 삭제됐다.
   이 저장소는 MinIO 커뮤니티 포크인 Silo(`pgsty/silo`)를 버전과 digest로 고정해 쓴다. 설정, 환경변수, 데이터 형식은
   MinIO와 같다([#6](https://github.com/inu-appcenter/memorIN-deploy/issues/6)).
-- Docker Hub는 로그인하지 않은 다운로드를 IP당 시간당 100회로 제한한다. Silo와 postgres가 모두
-  Docker Hub에서 받아지므로, pull이 `toomanyrequests`로 실패하면 서버에서 `docker login`을 한 뒤 다시 받는다.
+- Docker Hub는 로그인하지 않은 다운로드를 IP당 6시간에 100회로 제한한다(로그인하면 6시간에 200회).
+  Silo와 postgres가 모두 Docker Hub에서 받아지므로, pull이 `toomanyrequests`로 실패하면 서버에서
+  `docker login`을 한 뒤 다시 받는다.
 
 ## 배포
 
