@@ -64,7 +64,7 @@ services:
       # S3 API(9000)는 루프백에만 연다. 공용 Caddy가 같은 서버에서 이 포트로 리버스 프록시해
       # 스토리지 전용 호스트네임(MINIO_S3_PORT, README 참고)으로 공개한다. 호스트 밖에는 안 열린다.
       # 관리 콘솔(9001)은 관리자만 쓰므로 같은 이유로 루프백에만 연다.
-      - "127.0.0.1:${MINIO_S3_PORT:?.env에 MINIO_S3_PORT를 채워야 한다 — 공용 Caddy와 겹치지 않는 포트를 고른다}:9000"
+      - "127.0.0.1:${MINIO_S3_PORT:?.env에 MINIO_S3_PORT를 채워야 한다. 공용 Caddy와 겹치지 않는 포트를 고른다}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
@@ -176,7 +176,7 @@ services:
     ports:
       # 루프백에만 연다. 공용 Caddy가 같은 서버에서 이 포트로 리버스 프록시해
       # 웹 도메인(memorin.<도메인>, README 참고)으로 공개한다. 호스트 밖에는 안 열린다.
-      - "127.0.0.1:${FRONTEND_PORT:?.env에 FRONTEND_PORT를 채워야 한다 — 공용 Caddy와 겹치지 않는 포트를 고른다}:80"
+      - "127.0.0.1:${FRONTEND_PORT:?.env에 FRONTEND_PORT를 채워야 한다. 공용 Caddy와 겹치지 않는 포트를 고른다}:80"
     depends_on:
       backend:
         condition: service_healthy
