@@ -58,6 +58,15 @@ secrets/                        # firebase-service-account.json 등. 안의 파�
 
 1. 서버에 SSH로 접속해 `/etc/caddy/Caddyfile`을 열고, 이미 쓰이고 있는 `localhost:<포트>` 값을 확인해
    겹치지 않는 포트 2개를 고른다. 고른 값을 `.env`의 `FRONTEND_PORT`, `MINIO_S3_PORT`에 넣는다.
+
+   Caddyfile에 없는 포트도 쓰이고 있을 수 있다(Caddy를 거치지 않는 DB, 모니터링 컨테이너 등). 그리고
+   compose 기본값인 postgres `5432`, MinIO 콘솔 `9001`도 다른 서비스와 겹칠 수 있다. 공용 서버에서는
+   `5432`를 이미 다른 서비스가 쓰고 있으므로 `POSTGRES_PORT`를 다른 값(예: `15432`)으로 바꿔야 한다.
+   고른 포트 4개가 실제로 비어 있는지 서버에서 확인한다. 아무것도 출력되지 않으면 모두 비어 있다.
+
+   ```sh
+   ss -tln | grep -E ':(<FRONTEND_PORT>|<MINIO_S3_PORT>|<POSTGRES_PORT>|<MINIO_CONSOLE_PORT>) '
+   ```
 2. Caddyfile에 아래 형태로 블록 2개를 추가한다(다른 프로젝트 블록은 그대로 둔다).
 
    ```caddyfile
