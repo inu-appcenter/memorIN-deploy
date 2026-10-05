@@ -84,9 +84,10 @@ secrets/                        # firebase-service-account.json 등. 안의 파�
    `SignatureDoesNotMatch`가 난다. CORS 헤더도 Caddy에서 따로 붙이지 않는다. Silo가 이미 CORS를
    처리하므로, 헤더가 중복되면 브라우저가 요청을 거부한다.
 
-   presigned PUT은 업로드 크기를 서명하지 않아서([memorIN-backend#296](https://github.com/inu-appcenter/memorIN-backend/issues/296)),
-   지금은 프록시가 켜진 Cloudflare의 요청 본문 100MB 제한이 사실상의 업로드 크기 상한이다. 나중에 이
-   도메인의 DNS 프록시를 끄게 되면, 스토리지 블록에 아래처럼 `request_body`를 추가해 제한해야 한다.
+   presigned PUT URL은 발급 때 선언한 크기(`Content-Length`)까지 서명한다([memorIN-backend#296](https://github.com/inu-appcenter/memorIN-backend/issues/296)).
+   선언과 다른 크기의 본문은 스토리지가 403으로 거절하고, 선언한 크기가 `MINIO_MAX_UPLOAD_SIZE_BYTES`를
+   넘는지는 backend가 발급 때 검사한다. 프록시에서도 한 번 더 막으려면 스토리지 블록에 아래처럼
+   `request_body`를 추가한다. Cloudflare 프록시가 켜져 있으면 요청 본문 100MB 제한도 함께 걸린다.
 
    ```caddyfile
    memorin-storage.inuappcenter.kr {
@@ -386,7 +387,6 @@ pgAdmin을 포함하며, 포트를 호스트에 그대로 연다. 이 저장소�
 
 이 저장소의 배포 설정은 [MIT License](LICENSE)를 따른다. Copyright (c) 2026 INU AppCenter.
 
-- 애플리케이션 코드는 각 저장소의 라이선스를 따른다. `memorIN-backend`는 AGPL-3.0, `memorIN-frontend`는 MIT로
-  정했지만, 두 저장소에는 아직 `LICENSE` 파일이 없다(backend [#234](https://github.com/inu-appcenter/memorIN-backend/issues/234),
-  frontend [#99](https://github.com/inu-appcenter/memorIN-frontend/issues/99)에서 추가 예정).
+- 애플리케이션 코드는 각 저장소의 라이선스를 따른다. `memorIN-backend`는 AGPL-3.0, `memorIN-frontend`는 MIT이고,
+  전문은 각 저장소의 `LICENSE`에 있다.
 - 이 구성이 받아 쓰는 외부 이미지(PostgreSQL, Silo 등)는 각자의 라이선스를 따른다. Silo는 AGPL-3.0이다.
