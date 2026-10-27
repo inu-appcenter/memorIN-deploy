@@ -12,8 +12,10 @@ on:
 permissions:
   contents: read
 
+# 제목만 바꾼 실행(edited)은 그룹을 따로 둔다. 같은 그룹이면 제목 수정이 진행 중인 빌드를 취소하고,
+# 새 실행에서는 빌드 job이 건너뛰어져 검증이 한 번도 끝나지 않는다.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event.action == 'edited' && 'edited' || 'build' }}
   cancel-in-progress: true
 
 jobs:
