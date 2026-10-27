@@ -1,0 +1,19 @@
+# compose.yaml의 외부 이미지(postgres, Silo)를 매주 월요일 한 번, PR 하나로 묶어 받는다.
+# backend/frontend 이미지는 태그가 변수(${BACKEND_TAG:-latest})라 대상이 아니다.
+version: 2
+updates:
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 1
+    groups:
+      compose-images:
+        patterns: ["*"]
+    ignore:
+      # PostgreSQL 메이저 업그레이드는 데이터 디렉터리 이전(pg_upgrade 또는 덤프·복원)이 필요하다.
+      - dependency-name: "postgres"
+        update-types: [version-update:semver-major]
