@@ -4,6 +4,10 @@ version: 2
 updates:
   - package-ecosystem: docker-compose
     directory: /
+    # PR 제목 컨벤션 검사(<type>: 설명)를 통과하도록 "chore(deps): ..." 형식으로 만든다.
+    commit-message:
+      prefix: chore
+      include: scope
     schedule:
       interval: weekly
       day: monday
