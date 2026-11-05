@@ -1,0 +1,76 @@
+name: PR 메타데이터
+
+# 커밋과 PR 본문에 개발 도구가 자동으로 붙이는 서명이 남지 않았는지 검사한다.
+#   - 작성자·커미터가 도구 계정(noreply@<GitHub 외 도메인>)인 커밋
+#   - Co-authored-by 트레일러 중 GitHub noreply가 아닌 noreply 주소
+#   - "<도구>-Session: https://..." 형태의 세션 링크 트레일러
+#   - PR 본문의 "Generated with [...]" 꼬리말
+# 팀원끼리 붙이는 Co-authored-by(GitHub noreply 주소)와 Dependabot 커밋은 통과한다.
+# 본문만 고쳐도(edited) 다시 돈다.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-meta-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  signature:
+    name: 커밋·본문 서명 검사
+    runs-on: ubuntu-latest
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 커밋 작성자와 트레일러 검사
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          fail=0
+          for c in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+            subject=$(git log -1 --format='%h %s' "$c")
+            for e in $(git log -1 --format='%ae%n%ce' "$c" | sort -u); do
+              if [[ "$e" =~ ^noreply@ && "$e" != "noreply@github.com" ]]; then
+                echo "::error::$subject — 작성자/커미터가 도구 계정($e)입니다."
+                fail=1
+              fi
+            done
+            msg=$(git log -1 --format=%B "$c")
+            bad=$(printf '%s\n' "$msg" \
+              | grep -iE '^co-authored-by:.*noreply@|^[a-z-]+-session:[[:space:]]*https?://' \
+              | grep -viE '<(noreply@github\.com|[^>]*@users\.noreply\.github\.com)>' || true)
+            if [ -n "$bad" ]; then
+              echo "::error::$subject — 커밋 메시지에 도구 서명 트레일러가 있습니다:"
+              printf '%s\n' "$bad"
+              fail=1
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "git commit --amend 또는 git rebase -i로 해당 줄을 지우고 다시 푸시한다."
+            exit 1
+          fi
+          echo "OK: $(git rev-list --count "$BASE_SHA..$HEAD_SHA")개 커밋"
+
+      - name: PR 본문 검사
+        # Dependabot 본문은 업스트림 릴리스 노트를 그대로 옮기므로 검사하지 않는다.
+        if: github.event.pull_request.user.type != 'Bot'
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          hits=$(printf '%s\n' "$BODY" \
+            | grep -inE '^[^[:alnum:]]*generated (with|by) \[|^[a-z-]+-session:[[:space:]]*https?://' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::PR 본문에 도구가 자동으로 붙인 꼬리말이 있습니다. 아래 줄을 지운다(본문만 고쳐도 검사가 다시 돈다)."
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          echo "OK"
