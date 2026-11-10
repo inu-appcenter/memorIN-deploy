@@ -226,7 +226,7 @@ Cloudflare Universal SSL이 한 단계(`*.inuappcenter.kr`)까지만 덮어서 �
 
 ### 기여
 
-PR 제목은 `<type>: <설명>` 형식이다. CI가 `compose.yaml` 설정 검사와 제목 검사를 돌리고, `main`은 PR로만 바꿀 수 있다.
+브랜치, PR 제목, 검사 항목은 [CONTRIBUTING.md](CONTRIBUTING.md)를 본다. 보안 문제는 [SECURITY.md](SECURITY.md)의 절차로 제보한다.
 
 ## 라이선스
 
