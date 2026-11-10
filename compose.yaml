@@ -189,7 +189,8 @@ services:
     networks:
       - memorin_network
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:80/"]
+      # frontend 실행 이미지가 nginx Debian 판이라 wget이 없다. curl은 Debian 판과 Alpine 판 모두에 있다.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:80/"]
       interval: 10s
       timeout: 5s
       retries: 3
