@@ -41,6 +41,19 @@ jobs:
       - name: docker compose config
         run: docker compose --env-file .env.example config -q
 
+  release:
+    name: 배포 버전 검사
+    # release.env의 형식과, 적힌 이미지가 GHCR에 실제로 있는지 병합 전에 확인한다.
+    # 없는 태그가 병합되면 배포 job이 서버에 닿기 전에 실패하지만, 미리 막는 편이 낫다.
+    if: github.event.action != 'edited'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+
+      - name: release.env 검사
+        run: bash scripts/check-release.sh release.env
+
   pr-title:
     name: PR 제목 컨벤션 검사
     if: github.event_name == 'pull_request'

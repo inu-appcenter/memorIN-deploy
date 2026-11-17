@@ -1,0 +1,69 @@
+name: 배포
+
+# release.env(배포할 이미지 버전)나 서버 설정 파일이 main에 병합되면 운영 서버에 배포한다.
+# 서버에는 SSH로 접속하지만, 이 키로는 서버의 배포 스크립트 하나만 실행된다
+# (authorized_keys의 command= 강제, README '자동 배포' 참고).
+# 공개 저장소라 이 로그는 누구나 본다. 접속 정보는 모두 secrets로만 다룬다.
+on:
+  push:
+    branches: [main]
+    paths:
+      - release.env
+      - compose.yaml
+      - infra/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포는 한 번에 하나씩. 진행 중인 배포는 취소하지 않고 다음 배포가 기다린다.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 운영 서버 배포
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+
+      - name: 이미지 태그 확인
+        run: bash scripts/check-release.sh release.env
+
+      - name: SSH 준비
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: 배포 실행
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${DEPLOY_PORT:-22}" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" "deploy ${GITHUB_SHA}"
+
+      - name: 외부 헬스체크
+        run: |
+          for i in 1 2 3; do
+            curl -fsS -m 10 https://memorin.inuappcenter.kr/api/health && exit 0
+            sleep 10
+          done
+          echo "::error::https://memorin.inuappcenter.kr/api/health 응답 없음"
+          exit 1
+
+      - name: SSH 키 삭제
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
