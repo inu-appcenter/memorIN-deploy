@@ -9,6 +9,8 @@
 # 공개 저장소라 Actions 로그는 누구나 본다. 화면에는 단계와 결과만 내고, 자세한 내용은
 # 서버의 ~/memorin-deploy.log에만 남긴다.
 set -euo pipefail
+# 백업 덤프와 로그에 개인정보가 들어가므로 새로 만드는 파일은 본인만 읽게 한다.
+umask 077
 
 DEPLOY_DIR="${MEMORIN_DEPLOY_DIR:-$HOME/memorIN-deploy}"
 BACKUP_DIR="${MEMORIN_BACKUP_DIR:-$HOME/memorin-backups}"
