@@ -334,3 +334,102 @@ export async function run({ github, context, core, projectTitle, hasToken, today
   core.info(lines.length ? lines.join("\n") : "바꿀 칸이 없습니다");
   if (lines.length) await core.summary.addList(lines).write();
 }
+
+// ---------- 분류 일괄 적용(.github/workflows/project-triage.yml) ----------
+
+/** 일괄 분류로 바꿀 수 있는 저장소 */
+export const TRIAGE_REPOS = ["memorIN-backend", "memorIN-frontend", "memorIN-deploy"];
+
+const SHORT_REPO = { "memorIN-backend": "BE", "memorIN-frontend": "FE", "memorIN-deploy": "deploy" };
+
+/**
+ * 일괄 분류 입력(JSON 배열)을 읽는다. 잘못된 줄은 errors에 모은다.
+ * 한 줄: { repo, number, status?, priority?, kind?, week? }  week는 "current"(이번 주차)만 받는다.
+ */
+export function parseTriage(text) {
+  let raw;
+  try {
+    raw = JSON.parse(String(text ?? ""));
+  } catch (e) {
+    return { items: [], errors: [`JSON을 읽지 못했어요: ${e.message}`] };
+  }
+  if (!Array.isArray(raw)) return { items: [], errors: ["입력은 배열([...])이어야 해요"] };
+  const items = [];
+  const errors = [];
+  raw.forEach((r, i) => {
+    const at = `${i + 1}번째 줄`;
+    const repo = String(r?.repo ?? "");
+    const number = Number(r?.number);
+    if (!TRIAGE_REPOS.includes(repo)) return errors.push(`${at}: repo는 ${TRIAGE_REPOS.join(", ")} 중 하나여야 해요`);
+    if (!Number.isInteger(number) || number <= 0) return errors.push(`${at}: number가 이슈 번호가 아니에요`);
+    if (r.week != null && r.week !== "current") return errors.push(`${at}: week는 "current"만 쓸 수 있어요`);
+    items.push({
+      repo,
+      number,
+      status: r.status ?? null,
+      priority: r.priority ?? null,
+      kind: r.kind ?? null,
+      week: r.week ?? null,
+    });
+  });
+  return { items, errors };
+}
+
+/**
+ * 일괄 분류를 적용한다. apply가 false면 바뀔 내용만 돌려준다(아무것도 바꾸지 않음).
+ * 사람이 정한 값이라도 입력에 적힌 칸은 입력대로 바꾼다. 입력에 없는 칸은 그대로 둔다.
+ */
+export async function applyTriage({ graphql, org, projectTitle, items, today, apply = false }) {
+  const project = await findProject(graphql, org, projectTitle);
+  if (!project) return { lines: [`진행판 "${projectTitle}"을 찾지 못했어요(토큰 권한 또는 이름 확인)`], problems: 1 };
+  const lines = [];
+  let problems = 0;
+  const it = currentIteration(project.week?.configuration?.iterations, today);
+
+  for (const t of items) {
+    const label = `${SHORT_REPO[t.repo]} #${t.number}`;
+    const issue = await findIssue(graphql, org, t.repo, t.number, project.id);
+    if (!issue) {
+      lines.push(`${label}: 열린 이슈가 아니라 건너뜀`);
+      continue;
+    }
+    const cur = issue.item ?? { status: null, priority: null, kind: null, iteration: null };
+    const changes = [];
+    const wrong = [];
+    for (const [key, field] of [["status", project.status], ["priority", project.priority], ["kind", project.kind]]) {
+      const value = t[key];
+      if (value == null) continue;
+      const name = FIELD[key];
+      const opt = findOption(field, value);
+      if (!opt) wrong.push(`${name} "${value}" 선택지가 없음`);
+      else if (cur[key] !== opt.name) changes.push({ field, opt, text: `${name} ${cur[key] ?? "(없음)"} → ${opt.name}` });
+    }
+    let week = null;
+    if (t.week === "current") {
+      if (!project.week || !it) wrong.push(`${FIELD.week}: 오늘이 들어 있는 주차가 없음`);
+      else if (cur.iteration !== it.id) week = it;
+    }
+    problems += wrong.length;
+    const texts = [...(issue.item ? [] : ["진행판에 넣음"]), ...changes.map((c) => c.text), ...(week ? [`${FIELD.week} → ${week.startDate} 주`] : []), ...wrong];
+    lines.push(`${label}: ${texts.length ? texts.join(", ") : "바꿀 것 없음"}`);
+
+    if (!apply || (!changes.length && !week && issue.item)) continue;
+    const { item } = await ensureItem(graphql, project, issue);
+    for (const c of changes) await setSelect(graphql, project, c.field, item.id, c.opt.id);
+    if (week) await graphql(SET_ITERATION, { p: project.id, i: item.id, f: project.week.id, o: week.id });
+  }
+  return { lines, problems };
+}
+
+/** 일괄 분류 워크플로의 진입점 */
+export async function runTriage({ github, core, org, projectTitle, text, apply, hasToken, today = kstToday() }) {
+  const { items, errors } = parseTriage(text);
+  if (errors.length) return core.setFailed(["입력을 고쳐 주세요", ...errors].join("\n"));
+  if (!items.length) return core.setFailed("분류할 이슈가 없어요");
+  if (!hasToken) return core.setFailed("진행판 토큰이 없어요. PROJECT_APP_ID와 PROJECT_APP_PRIVATE_KEY(또는 PROJECT_TOKEN)를 확인해 주세요");
+  const { lines, problems } = await applyTriage({ graphql: github.graphql, org, projectTitle, items, today, apply });
+  const head = apply ? "적용함" : "시험 실행(바뀌지 않음). 적용하려면 apply를 켜고 다시 실행";
+  core.info([head, ...lines].join("\n"));
+  await core.summary.addHeading(`진행판 분류: ${head}`, 3).addList(lines).write();
+  if (problems) core.setFailed(`선택지나 주차를 찾지 못한 칸이 ${problems}개 있어요(위 목록 참고)`);
+}

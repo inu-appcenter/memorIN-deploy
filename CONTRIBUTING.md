@@ -17,6 +17,7 @@
   - PR 본문에 `Closes #번호`를 적고 PR을 열면 "리뷰 중", 수정 요청 리뷰를 받으면 다시 "진행 중"
   - 이슈가 닫히면 "완료"
 - 규칙은 `.github/scripts/project-sync.mjs`, 토큰 설정은 `.github/workflows/project-sync.yml` 맨 위 설명에 있습니다. backend와 frontend는 이 저장소의 공용 워크플로를 호출합니다.
+- 분류 회의 뒤 여러 이슈의 Status, 우선순위, 종류, 주차를 한 번에 바꿀 때는 Actions > 진행판 분류 일괄 적용을 씁니다. 입력 형식은 `.github/workflows/project-triage.yml` 맨 위에 있습니다.
 
 ## 브랜치와 PR
 - `main`에서 브랜치를 만들어 `main`으로 PR을 올리고, merge commit으로 병합합니다.
