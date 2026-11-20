@@ -1,0 +1,68 @@
+# memorIN 진행판(inu-appcenter 조직 Projects "memorIN 진행판") 자동 정리 - 공용 워크플로.
+# 저장소 3개(backend, frontend, deploy)의 .github/workflows/project.yml이 이 워크플로를 호출한다.
+# 진행판 기본 Workflows(닫힌 이슈를 "완료"로 등)로 안 되는 것만 맡는다.
+#  - 새 이슈: 진행판에 넣고, 비어 있는 칸만 채움(Status "할 일", 양식의 우선순위, 양식이나 라벨의 종류)
+#  - 이슈 번호가 든 브랜치를 처음 올림(fix/347-..., 347-fix-...): 그 이슈를 "진행 중"으로, "주차"가 비어 있으면 이번 주로
+#  - PR 열기, 초안 해제, 리뷰 요청: 연결 이슈를 "리뷰 중"으로(초안 PR이면 "진행 중")
+#    연결 이슈 = 본문의 Closes, Fixes, Resolves, Refs #번호, 제목의 (#번호), 브랜치 이름의 번호
+#  - 수정 요청 리뷰: "리뷰 중"인 연결 이슈를 "진행 중"으로
+#
+# 조직 Projects 쓰기 권한이 있는 토큰이 필요하다. 없으면 건너뛰고 실패로 표시하지 않는다.
+#   1) GitHub App(권장, 조직 소유자가 만듦): 조직 Settings > Developer settings > GitHub Apps > New GitHub App
+#      - 권한: Organization의 Projects 읽기와 쓰기 / Repository의 Issues 읽기, Pull requests 읽기
+#      - Webhook은 꺼도 됨. 만든 뒤 memorIN 저장소 3개에만 설치
+#      - 저장소 3개 각각 Settings > Secrets and variables > Actions: 변수 PROJECT_APP_ID(App ID), 비밀값 PROJECT_APP_PRIVATE_KEY(개인 키 .pem 내용)
+#   2) 개인 토큰: 저장소 3개 각각 비밀값 PROJECT_TOKEN(classic이면 project, repo 범위). 만든 사람 계정에 묶여서 1)을 권장
+#   설정 뒤 확인: 아무 저장소에서나 Actions > 진행판 정리 > Run workflow(점검). 진행판을 읽기만 하고 결과를 요약에 남긴다
+# 규칙: .github/scripts/project-sync.mjs (시험: project-sync.test.mjs, CI "진행판 규칙 시험")
+name: 진행판 정리 (공용)
+
+on:
+  workflow_call:
+    inputs:
+      app-id:
+        description: GitHub App ID(호출하는 저장소의 변수 PROJECT_APP_ID)
+        type: string
+        required: false
+        default: ""
+    secrets:
+      PROJECT_APP_PRIVATE_KEY:
+        required: false
+      PROJECT_TOKEN:
+        required: false
+
+env:
+  PROJECT_TITLE: memorIN 진행판
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # 규칙 파일은 늘 memorIN-deploy main 것을 쓴다(PR이 규칙을 바꿔 토큰을 쓰지 못하게)
+      - uses: actions/checkout@v7
+        with:
+          repository: inu-appcenter/memorIN-deploy
+          ref: main
+          sparse-checkout: .github/scripts
+          path: rules
+
+      - name: 진행판 토큰 만들기(GitHub App)
+        id: app
+        if: inputs.app-id != ''
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ inputs.app-id }}
+          private-key: ${{ secrets.PROJECT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: 진행판 정리
+        uses: actions/github-script@v9
+        env:
+          HAS_TOKEN: ${{ steps.app.outputs.token != '' || secrets.PROJECT_TOKEN != '' }}
+        with:
+          github-token: ${{ steps.app.outputs.token || secrets.PROJECT_TOKEN || github.token }}
+          script: |
+            const rules = `${process.env.GITHUB_WORKSPACE}/rules/.github/scripts/project-sync.mjs`;
+            const { run } = await import(rules);
+            await run({ github, context, core, projectTitle: process.env.PROJECT_TITLE, hasToken: process.env.HAS_TOKEN === "true" });
