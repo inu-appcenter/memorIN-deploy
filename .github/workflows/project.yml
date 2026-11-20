@@ -1,0 +1,34 @@
+# 진행판(inu-appcenter 조직 Projects "memorIN 진행판") 자동 정리.
+# 규칙과 토큰 설정 방법은 memorIN-deploy의 .github/workflows/project-sync.yml(공용)에 있다.
+# 이 파일은 저장소 3개(backend, frontend, deploy)에 똑같이 둔다.
+# 이슈와 브랜치 이벤트는 기본 브랜치(main)에 있는 이 파일로 돈다.
+name: 진행판 정리
+
+on:
+  issues:
+    types: [opened]
+  create:
+  pull_request:
+    types: [opened, reopened, ready_for_review, converted_to_draft, review_requested, edited]
+  pull_request_review:
+    types: [submitted]
+  # 점검: 토큰과 진행판 필드를 읽기만 한다
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: project-sync-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Dependabot PR과 태그 생성은 건너뜀
+    if: github.actor != 'dependabot[bot]' && (github.event_name != 'create' || github.event.ref_type == 'branch')
+    uses: inu-appcenter/memorIN-deploy/.github/workflows/project-sync.yml@main
+    with:
+      app-id: ${{ vars.PROJECT_APP_ID }}
+    secrets: inherit

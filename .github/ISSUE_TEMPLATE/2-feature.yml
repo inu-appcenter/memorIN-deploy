@@ -1,0 +1,55 @@
+name: 기능 요청
+description: 새 기능이나 개선을 제안합니다
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: why
+    attributes:
+      label: "배경, 목적"
+      description: "왜 필요한가요? 어떤 문제를 풀거나 무엇을 가능하게 하나요?"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "제안 내용"
+      description: "바꿀 설정, 서비스, 서버 작업"
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: "완료 조건"
+      description: "무엇이 되면 이 이슈를 닫을 수 있나요? 체크할 수 있게 적어 주세요."
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: "영향 범위, 의존"
+      description: "운영 서버에서 해야 할 일, .env 변경, backend·frontend에 필요한 변경(이슈 링크)"
+    validations:
+      required: false
+  - type: textarea
+    id: ref
+    attributes:
+      label: "참고"
+      description: "관련 문서, 디자인, 링크"
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 우선순위
+      description: 진행판의 "우선순위" 칸에 자동으로 들어갑니다. 분류 회의에서 바뀔 수 있어요.
+      options:
+        - "P0 - 긴급: 서비스 중단, 보안 사고, 데이터 손실 (당일)"
+        - "P1 - 높음: 공개를 막는 문제, 주요 기능 오류 (이번 주)"
+        - "P2 - 보통: 이번 마일스톤 안"
+        - "P3 - 낮음: 여유 있을 때"
+    validations:
+      required: true

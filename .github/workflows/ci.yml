@@ -54,6 +54,24 @@ jobs:
       - name: release.env 검사
         run: bash scripts/check-release.sh release.env
 
+  project-rules:
+    name: 진행판 규칙 시험
+    # 저장소 3개가 함께 쓰는 진행판 규칙(.github/scripts/project-sync.mjs)이 깨지지 않았는지 본다.
+    if: github.event.action != 'edited'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v7
+
+      - name: Node 설정
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: node --test
+        run: node --test .github/scripts/project-sync.test.mjs
+
   pr-title:
     name: PR 제목 컨벤션 검사
     if: github.event_name == 'pull_request'
