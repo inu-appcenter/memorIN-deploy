@@ -9,13 +9,16 @@
 # 공개 저장소라 Actions 로그는 누구나 본다. 화면에는 단계와 결과만 내고, 자세한 내용은
 # 서버의 ~/memorin-deploy.log에만 남긴다.
 set -euo pipefail
-# 백업 덤프와 로그에 개인정보가 들어가므로 새로 만드는 파일은 본인만 읽게 한다.
-umask 077
 
 DEPLOY_DIR="${MEMORIN_DEPLOY_DIR:-$HOME/memorIN-deploy}"
 BACKUP_DIR="${MEMORIN_BACKUP_DIR:-$HOME/memorin-backups}"
 LOG="$HOME/memorin-deploy.log"
 HEALTH_TIMEOUT=240
+
+# 백업 덤프와 로그에는 개인정보가 들어가므로 이 둘만 본인만 읽게 만든다.
+# umask를 스크립트 전체에 걸면 아래 git merge가 갱신하는 저장소 파일도 600이 되어,
+# postgres 컨테이너(postgres 계정)가 infra/postgres/postgresql.conf를 읽지 못하고 기동에 실패한다.
+(umask 077 && touch "$LOG") && chmod 600 "$LOG"
 
 say() { printf '%s %s\n' "$(date '+%F %T')" "$*" | tee -a "$LOG"; }
 die() { say "실패: $*"; exit 1; }
@@ -64,7 +67,7 @@ docker compose config -q >>"$LOG" 2>&1 || { cp -p "$HOME/.memorin-env.bak" .env;
 mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
 pg_user=$(grep -E '^POSTGRES_USER=' .env | cut -d= -f2- || true); pg_db=$(grep -E '^POSTGRES_DB=' .env | cut -d= -f2- || true)
 dump="$BACKUP_DIR/pre-deploy-$(date +%Y%m%d-%H%M%S).dump"
-if docker compose exec -T postgres pg_dump -U "${pg_user:-memorin_user}" -Fc "${pg_db:-memorin_db}" >"$dump" 2>>"$LOG"; then
+if (umask 077 && docker compose exec -T postgres pg_dump -U "${pg_user:-memorin_user}" -Fc "${pg_db:-memorin_db}" >"$dump") 2>>"$LOG"; then
   say "DB 백업 완료"
   ls -1t "$BACKUP_DIR"/pre-deploy-*.dump 2>/dev/null | tail -n +11 | xargs -r rm -f   # 직전 10개만 보관
 else
