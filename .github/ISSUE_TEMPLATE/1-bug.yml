@@ -1,0 +1,63 @@
+name: 버그 신고
+description: 의도와 다르게 동작하는 문제를 알립니다
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        보안 취약점은 공개 이슈 대신 [비공개 제보](https://github.com/inu-appcenter/memorIN-deploy/security/advisories/new)로 알려 주세요.
+  - type: textarea
+    id: problem
+    attributes:
+      label: "무슨 문제인가"
+      description: "어떤 동작이 어떻게 잘못되는지 1~2줄"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: "재현 방법"
+      description: "실행한 명령과 순서. 서버 접속 정보, 계정, .env 값은 적지 마세요(공개 저장소)."
+      value: |
+        1. 
+        2. 
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "기대한 결과와 실제 결과"
+      description: "어떻게 돼야 하는데 실제로는 어떻게 되는지"
+      value: |
+        - 기대: 
+        - 실제: 
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "근거, 로그"
+      description: "docker compose ps, 로그 일부, 오류 문구(비밀값은 지우고)"
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: env
+    attributes:
+      label: 환경
+      placeholder: "서버, 이미지 태그(BACKEND_TAG, FRONTEND_TAG), 커밋"
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 우선순위
+      description: 진행판의 "우선순위" 칸에 자동으로 들어갑니다. 분류 회의에서 바뀔 수 있어요.
+      options:
+        - "P0 - 긴급: 서비스 중단, 보안 사고, 데이터 손실 (당일)"
+        - "P1 - 높음: 공개를 막는 문제, 주요 기능 오류 (이번 주)"
+        - "P2 - 보통: 이번 마일스톤 안"
+        - "P3 - 낮음: 여유 있을 때"
+    validations:
+      required: true

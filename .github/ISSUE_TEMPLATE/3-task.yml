@@ -1,0 +1,61 @@
+name: 작업 요청
+description: 유지보수(리팩터링, 의존성, 테스트, 문서)나 운영(배포, 서버, 인프라) 작업
+title: "chore: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        제목의 종류는 작업에 맞게 바꿔 주세요(chore, docs, test, refactor, perf).
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 종류
+      description: 진행판의 "종류" 칸에 자동으로 들어갑니다.
+      options:
+        - "유지보수 - 리팩터링, 의존성, 테스트, 문서"
+        - "운영 - 배포, 서버, 인프라, 보안 설정"
+    validations:
+      required: true
+  - type: textarea
+    id: purpose
+    attributes:
+      label: "목적"
+      description: "왜 하는지"
+    validations:
+      required: true
+  - type: textarea
+    id: todo
+    attributes:
+      label: "할 일"
+      description: "체크할 수 있게 적어 주세요."
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: "완료 조건"
+      description: "어디에 어떤 형태로 반영되면 닫을 수 있나요?"
+    validations:
+      required: true
+  - type: textarea
+    id: deps
+    attributes:
+      label: "먼저 끝나야 하는 것"
+      description: "이슈 번호나 결정 사항. 없으면 비워 두세요."
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: 우선순위
+      description: 진행판의 "우선순위" 칸에 자동으로 들어갑니다. 분류 회의에서 바뀔 수 있어요.
+      options:
+        - "P0 - 긴급: 서비스 중단, 보안 사고, 데이터 손실 (당일)"
+        - "P1 - 높음: 공개를 막는 문제, 주요 기능 오류 (이번 주)"
+        - "P2 - 보통: 이번 마일스톤 안"
+        - "P3 - 낮음: 여유 있을 때"
+    validations:
+      required: true
