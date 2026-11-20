@@ -1,0 +1,73 @@
+# 진행판(inu-appcenter 조직 Projects "memorIN 진행판")의 여러 이슈를 한 번에 분류한다.
+# 분류 회의 뒤 Status, 우선순위, 종류, 주차를 표로 정했을 때 쓴다.
+#
+# 실행: Actions > 진행판 분류 일괄 적용 > Run workflow
+#  - items: JSON 배열. 한 줄에 이슈 하나. 적은 칸만 바꾸고 적지 않은 칸은 그대로 둔다.
+#      [{"repo":"memorIN-backend","number":346,"status":"할 일","priority":"P1","kind":"버그","week":"current"}]
+#      repo: memorIN-backend, memorIN-frontend, memorIN-deploy
+#      status: 할 일, 진행 중, 리뷰 중, 결정 대기, 보류, 완료 / priority: P0~P3 / kind: 기능, 버그, 유지보수, 운영
+#      week: "current"면 이번 주차
+#  - apply: 끄고 먼저 돌려 바뀔 내용(요약)을 확인한 뒤, 켜고 다시 돌린다.
+# 토큰은 진행판 정리(project-sync.yml)와 같다(PROJECT_APP_ID와 PROJECT_APP_PRIVATE_KEY, 또는 PROJECT_TOKEN).
+# 규칙: .github/scripts/project-sync.mjs의 parseTriage, applyTriage
+name: 진행판 분류 일괄 적용
+
+on:
+  workflow_dispatch:
+    inputs:
+      items:
+        description: 'JSON 배열. 예: [{"repo":"memorIN-backend","number":346,"priority":"P1","week":"current"}]'
+        required: true
+        type: string
+      apply:
+        description: 켜면 실제로 바꿈. 끄면 바뀔 내용만 보여 줌
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-triage
+  cancel-in-progress: false
+
+env:
+  PROJECT_TITLE: memorIN 진행판
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+
+      - name: 진행판 토큰 만들기(GitHub App)
+        id: app
+        if: vars.PROJECT_APP_ID != ''
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.PROJECT_APP_ID }}
+          private-key: ${{ secrets.PROJECT_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: 분류 적용
+        uses: actions/github-script@v9
+        env:
+          HAS_TOKEN: ${{ steps.app.outputs.token != '' || secrets.PROJECT_TOKEN != '' }}
+          # 입력은 스크립트에 직접 넣지 않고 환경변수로 넘긴다(입력 내용이 코드로 실행되지 않게)
+          ITEMS: ${{ inputs.items }}
+          APPLY: ${{ inputs.apply }}
+        with:
+          github-token: ${{ steps.app.outputs.token || secrets.PROJECT_TOKEN || github.token }}
+          script: |
+            const { runTriage } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/project-sync.mjs`);
+            await runTriage({
+              github, core,
+              org: context.repo.owner,
+              projectTitle: process.env.PROJECT_TITLE,
+              text: process.env.ITEMS,
+              apply: process.env.APPLY === "true",
+              hasToken: process.env.HAS_TOKEN === "true",
+            });

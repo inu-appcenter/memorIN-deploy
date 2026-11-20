@@ -16,6 +16,9 @@ import {
   syncIssues,
   checkProject,
   run,
+  parseTriage,
+  applyTriage,
+  runTriage,
 } from "./project-sync.mjs";
 
 test("브랜치 이름에서 이슈 번호", () => {
@@ -241,4 +244,72 @@ test("진입점: 새 이슈를 넣음", async () => {
   const context = { repo: { owner: "inu-appcenter", repo: "memorIN-frontend" }, eventName: "issues", payload: { action: "opened", issue: { number: 5, body: form([["우선순위", "P1 - 높음"]]), labels: [{ name: "enhancement" }] } } };
   await run({ github: { graphql }, context, core, projectTitle: "memorIN 진행판", hasToken: true, today: "2026-11-20" });
   assert.match(log.info.at(-1), /#5: 진행판에 넣음\n#5: 할 일 칸으로\n#5: 우선순위 P1 높음\n#5: 종류 기능/);
+});
+
+// ---------- 분류 일괄 적용 ----------
+
+test("일괄 분류 입력 검사", () => {
+  assert.match(parseTriage("{").errors[0], /JSON을 읽지 못했어요/);
+  assert.deepEqual(parseTriage("{}").errors, ["입력은 배열([...])이어야 해요"]);
+  const { items, errors } = parseTriage(JSON.stringify([
+    { repo: "memorIN-backend", number: 346, priority: "P1", week: "current" },
+    { repo: "other-repo", number: 1 },
+    { repo: "memorIN-frontend", number: "x" },
+    { repo: "memorIN-deploy", number: 8, week: "next" },
+  ]));
+  assert.deepEqual(items, [{ repo: "memorIN-backend", number: 346, status: null, priority: "P1", kind: null, week: "current" }]);
+  assert.equal(errors.length, 3);
+});
+
+test("일괄 분류: 시험 실행은 바꾸지 않고 바뀔 내용만", async () => {
+  const item = { id: "X", status: { name: STATUS.todo }, priority: null, kind: { name: "버그" }, week: null };
+  const { graphql, writes } = fakeGraphql({ issues: { 111: openIssue("I111", item), 86: openIssue("I86") } });
+  const items = [
+    { repo: "memorIN-frontend", number: 111, status: "할 일", priority: "P1", kind: "버그", week: "current" },
+    { repo: "memorIN-frontend", number: 86, status: "보류", priority: "P3", kind: "기능", week: null },
+    { repo: "memorIN-frontend", number: 999, status: "할 일", priority: null, kind: null, week: null },
+  ];
+  const { lines, problems } = await applyTriage({ graphql, org: "inu-appcenter", projectTitle: "memorIN 진행판", items, today: "2026-11-20" });
+  assert.deepEqual(lines, [
+    "FE #111: 우선순위 (없음) → P1 높음, 주차 → 2026-11-16 주",
+    "FE #86: 진행판에 넣음, Status (없음) → 보류, 우선순위 (없음) → P3 낮음, 종류 (없음) → 기능",
+    "FE #999: 열린 이슈가 아니라 건너뜀",
+  ]);
+  assert.equal(problems, 0);
+  assert.deepEqual(writes(), []);
+});
+
+test("일괄 분류: 적용", async () => {
+  const item = { id: "X", status: { name: STATUS.todo }, priority: null, kind: { name: "버그" }, week: null };
+  const { graphql, writes } = fakeGraphql({ issues: { 111: openIssue("I111", item), 86: openIssue("I86") } });
+  const items = [
+    { repo: "memorIN-frontend", number: 111, status: "할 일", priority: "P1", kind: "버그", week: "current" },
+    { repo: "memorIN-frontend", number: 86, status: "보류", priority: null, kind: null, week: null },
+  ];
+  await applyTriage({ graphql, org: "inu-appcenter", projectTitle: "memorIN 진행판", items, today: "2026-11-20", apply: true });
+  assert.deepEqual(writes(), [
+    { p: "P1", i: "X", f: "FP", o: "p1" },
+    { p: "P1", i: "X", f: "FW", o: "w1" },
+    { p: "P1", c: "I86" },
+    { p: "P1", i: "item-I86", f: "FS", o: "s4" },
+  ]);
+});
+
+test("일괄 분류: 없는 선택지와 주차는 문제로 세고 그 칸만 건너뜀", async () => {
+  const { graphql, writes } = fakeGraphql({ issues: { 5: openIssue("I5", { id: "X", status: { name: STATUS.todo } }) } });
+  const items = [{ repo: "memorIN-deploy", number: 5, status: "검토", priority: "P2", kind: null, week: "current" }];
+  const { lines, problems } = await applyTriage({ graphql, org: "inu-appcenter", projectTitle: "memorIN 진행판", items, today: "2027-01-01", apply: true });
+  assert.deepEqual(lines, ['deploy #5: 우선순위 (없음) → P2 보통, Status "검토" 선택지가 없음, 주차: 오늘이 들어 있는 주차가 없음']);
+  assert.equal(problems, 2);
+  assert.deepEqual(writes(), [{ p: "P1", i: "X", f: "FP", o: "p2" }]);
+});
+
+test("일괄 분류 진입점: 입력 오류와 토큰 없음은 실패", async () => {
+  const { graphql } = fakeGraphql();
+  const a = fakeCore();
+  await runTriage({ github: { graphql }, core: a.core, org: "inu-appcenter", projectTitle: "memorIN 진행판", text: "[{}]", apply: false, hasToken: true });
+  assert.match(a.log.failed[0], /입력을 고쳐 주세요/);
+  const b = fakeCore();
+  await runTriage({ github: { graphql }, core: b.core, org: "inu-appcenter", projectTitle: "memorIN 진행판", text: '[{"repo":"memorIN-deploy","number":1}]', apply: false, hasToken: false });
+  assert.match(b.log.failed[0], /토큰이 없어요/);
 });
