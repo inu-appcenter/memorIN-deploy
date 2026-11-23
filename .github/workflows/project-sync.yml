@@ -5,7 +5,12 @@
 #  - 이슈 번호가 든 브랜치를 처음 올림(fix/347-..., 347-fix-...): 그 이슈를 "진행 중"으로, "주차"가 비어 있으면 이번 주로
 #  - PR 열기, 초안 해제, 리뷰 요청: 연결 이슈를 "리뷰 중"으로(초안 PR이면 "진행 중")
 #    연결 이슈 = 본문의 Closes, Fixes, Resolves, Refs #번호, 제목의 (#번호), 브랜치 이름의 번호
-#  - 수정 요청 리뷰: "리뷰 중"인 연결 이슈를 "진행 중"으로
+#  - 수정 요청 리뷰, 초안으로 되돌림: "리뷰 중"인 연결 이슈를 "진행 중"으로
+#  - PR 닫힘
+#    - develop처럼 기본 브랜치가 아닌 곳에 병합: Closes, Fixes, Resolves로 연결한 이슈를 "완료"로 옮기고 닫는다
+#      (기본 브랜치 병합은 GitHub이 Closes로 닫고 기본 Workflows가 "완료"로 옮김)
+#    - 병합 없이 닫음, 또는 닫는 키워드 없이 연결: "리뷰 중"인 연결 이슈를 "진행 중"으로
+#  - 점검(손으로 실행, deploy의 매주 월요일 정기 실행): 토큰, 필드, 주차를 읽고 고칠 것이 있으면 실패로 표시
 #
 # 조직 Projects 쓰기 권한이 있는 토큰이 필요하다. 없으면 건너뛰고 실패로 표시하지 않는다.
 #   1) GitHub App(권장, 조직 소유자가 만듦): 조직 Settings > Developer settings > GitHub Apps > New GitHub App
@@ -14,6 +19,7 @@
 #      - 저장소 3개 각각 Settings > Secrets and variables > Actions: 변수 PROJECT_APP_ID(App ID), 비밀값 PROJECT_APP_PRIVATE_KEY(개인 키 .pem 내용)
 #   2) 개인 토큰: 저장소 3개 각각 비밀값 PROJECT_TOKEN(classic이면 project, repo 범위). 만든 사람 계정에 묶여서 1)을 권장
 #   설정 뒤 확인: 아무 저장소에서나 Actions > 진행판 정리 > Run workflow(점검). 진행판을 읽기만 하고 결과를 요약에 남긴다
+# 이슈 닫기에는 진행판 토큰이 아니라 호출한 저장소의 GITHUB_TOKEN을 쓴다(호출 워크플로의 permissions에 issues: write).
 # 규칙: .github/scripts/project-sync.mjs (시험: project-sync.test.mjs, CI "진행판 규칙 시험")
 name: 진행판 정리 (공용)
 
@@ -60,9 +66,12 @@ jobs:
         uses: actions/github-script@v9
         env:
           HAS_TOKEN: ${{ steps.app.outputs.token != '' || secrets.PROJECT_TOKEN != '' }}
+          # develop 병합 때 이슈를 닫는 데 쓴다(호출한 저장소의 GITHUB_TOKEN)
+          ISSUE_TOKEN: ${{ github.token }}
         with:
           github-token: ${{ steps.app.outputs.token || secrets.PROJECT_TOKEN || github.token }}
           script: |
             const rules = `${process.env.GITHUB_WORKSPACE}/rules/.github/scripts/project-sync.mjs`;
             const { run } = await import(rules);
-            await run({ github, context, core, projectTitle: process.env.PROJECT_TITLE, hasToken: process.env.HAS_TOKEN === "true" });
+            const issueApi = process.env.ISSUE_TOKEN ? getOctokit(process.env.ISSUE_TOKEN) : null;
+            await run({ github, context, core, projectTitle: process.env.PROJECT_TITLE, hasToken: process.env.HAS_TOKEN === "true", issueApi });

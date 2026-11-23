@@ -62,6 +62,18 @@ export function linkedIssues({ title = "", body = "", branch = "" } = {}) {
   return [...out];
 }
 
+/**
+ * PR 본문에서 이슈를 닫는 키워드(Closes, Fixes, Resolves)로 연결한 같은 저장소의 이슈 번호들.
+ * GitHub이 기본 브랜치 병합 때 닫는 것과 같은 기준이다(Refs, 제목, 브랜치 이름의 번호는 넣지 않음).
+ */
+export function closingIssues(body = "") {
+  const out = new Set();
+  const text = String(body ?? "").replace(/<!--[\s\S]*?-->/g, "");
+  const kw = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b\s*:?\s*(#\d+(?:\s*(?:,|and|및)\s*#\d+)*)/gi;
+  for (const m of text.matchAll(kw)) for (const n of m[1].matchAll(/#(\d+)/g)) out.add(Number(n[1]));
+  return [...out];
+}
+
 /** 이슈 양식의 답(### 질문 다음 줄). 없거나 "_No response_"면 "" */
 export function formAnswer(body, label) {
   const text = typeof body === "string" ? body : "";
@@ -88,17 +100,19 @@ export function kindFromIssue({ body = "", labels = [] } = {}) {
 /**
  * 일이 생겼을 때 지금 칸에서 옮길 칸. 그대로 두면 null.
  *  - branch: 이슈 번호가 든 브랜치를 처음 올림. 시작 전이면 "진행 중"
- *  - pr_draft: 초안 PR. 시작 전이면 "진행 중"
+ *  - pr_draft: 초안 PR(초안으로 되돌린 PR 포함). 시작 전이거나 "리뷰 중"이면 "진행 중"
  *  - pr_ready: 리뷰를 받을 PR(열기, 초안 해제, 리뷰 요청). "리뷰 중"
  *  - changes_requested: 수정 요청 리뷰. "리뷰 중"이면 "진행 중"
+ *  - pr_closed: 이슈를 닫지 않고 끝난 PR(병합 없이 닫음, 또는 Closes 없이 병합). "리뷰 중"이면 "진행 중"
  * "완료" 칸은 건드리지 않는다(닫힌 이슈는 기본 Workflows가 맡음).
  */
 export function nextStatus(current, event) {
   const cur = current || STATUS.todo;
   if (cur === STATUS.done) return null;
-  if (event === "branch" || event === "pr_draft") return NOT_STARTED.has(cur) ? STATUS.doing : null;
+  if (event === "branch") return NOT_STARTED.has(cur) ? STATUS.doing : null;
+  if (event === "pr_draft") return NOT_STARTED.has(cur) || cur === STATUS.review ? STATUS.doing : null;
   if (event === "pr_ready") return cur === STATUS.review ? null : STATUS.review;
-  if (event === "changes_requested") return cur === STATUS.review ? STATUS.doing : null;
+  if (event === "changes_requested" || event === "pr_closed") return cur === STATUS.review ? STATUS.doing : null;
   return null;
 }
 
@@ -121,6 +135,7 @@ export function currentIteration(iterations, today) {
  * 이벤트를 할 일로 바꾼다. 할 일이 없으면 null.
  *  - { type: "new_issue", number, body, labels }
  *  - { type: "move", numbers, event }
+ *  - { type: "pr_closed", close, back }: close는 닫고 "완료"로 옮길 이슈, back은 "리뷰 중"이면 "진행 중"으로 되돌릴 이슈
  */
 export function planFromEvent(eventName, payload) {
   const ev = payload ?? {};
@@ -131,6 +146,17 @@ export function planFromEvent(eventName, payload) {
     if (ev.ref_type !== "branch") return null;
     const n = issueFromBranch(ev.ref);
     return n ? { type: "move", numbers: [n], event: "branch" } : null;
+  }
+  if (eventName === "pull_request" && ev.pull_request && ev.action === "closed") {
+    const pr = ev.pull_request;
+    const linked = linkedIssues({ title: pr.title, body: pr.body, branch: pr.head?.ref });
+    const closing = pr.merged ? closingIssues(pr.body) : [];
+    // 기본 브랜치(main) 병합은 GitHub이 Closes로 이슈를 닫고 기본 Workflows가 "완료"로 옮긴다.
+    // backend처럼 develop에 병합하면 GitHub이 닫지 않으므로 여기서 닫는다.
+    const toDefault = pr.base?.ref === ev.repository?.default_branch;
+    const close = pr.merged && !toDefault ? closing : [];
+    const back = linked.filter((n) => !closing.includes(n));
+    return close.length || back.length ? { type: "pr_closed", close, back } : null;
   }
   if (eventName === "pull_request" && ev.pull_request) {
     const pr = ev.pull_request;
@@ -219,24 +245,46 @@ async function setSelect(graphql, project, field, itemId, optionId) {
   await graphql(SET_SELECT, { p: project.id, i: itemId, f: field.id, o: optionId });
 }
 
+/** 주차 정보가 끝나기 전에 미리 알려 줄 기간(일) */
+const WEEK_WARN_DAYS = 14;
+
 /**
- * 토큰과 진행판 설정 점검(아무것도 바꾸지 않음). 사람이 읽는 줄들을 돌려준다.
+ * 토큰과 진행판 설정 점검(아무것도 바꾸지 않음). 사람이 읽는 줄(lines)과 고칠 것(problems)을 돌려준다.
+ * Status 칸 이름이 STATUS와 다르면 그 칸으로는 옮기지 못하므로 함께 알려 준다.
  */
 export async function checkProject({ graphql, org, projectTitle, today }) {
   const project = await findProject(graphql, org, projectTitle);
-  if (!project) return [`진행판 "${projectTitle}"을 찾지 못했어요(App 설치, Projects 권한, 이름 확인)`];
+  if (!project) {
+    const line = `진행판 "${projectTitle}"을 찾지 못했어요(App 설치, Projects 권한, 이름 확인)`;
+    return { lines: [line], problems: [line] };
+  }
+  const problems = [];
   const names = project.status?.options.map((o) => o.name) ?? [];
   const missing = Object.values(STATUS).filter((s) => !names.includes(s));
-  const it = project.week ? currentIteration(project.week.configuration.iterations, today) : null;
   const optionList = (f) => (f ? f.options.map((o) => o.name).join(", ") : "");
-  return [
-    `진행판 찾음: ${projectTitle}`,
-    project.status ? `Status 칸: ${names.join(", ")}` : "Status 칸이 없어요",
-    missing.length ? `없는 칸(이 칸으로는 옮기지 못함): ${missing.join(", ")}` : "필요한 칸이 모두 있어요",
-    project.priority ? `${FIELD.priority}: ${optionList(project.priority)}` : `"${FIELD.priority}" 필드가 없어요(우선순위 넣기는 건너뜀)`,
-    project.kind ? `${FIELD.kind}: ${optionList(project.kind)}` : `"${FIELD.kind}" 필드가 없어요(종류 넣기는 건너뜀)`,
-    !project.week ? `"${FIELD.week}" 필드가 없어요(주차 넣기는 건너뜀)` : it ? `이번 주차: ${it.startDate}부터 ${it.duration}일` : "오늘이 들어 있는 주차가 없어요",
-  ];
+  const lines = [`진행판 찾음: ${projectTitle}`];
+
+  if (!project.status) problems.push("Status 칸이 없어요");
+  else lines.push(`Status 칸: ${names.join(", ")}`);
+  if (missing.length) problems.push(`없는 칸(이 칸으로는 옮기지 못함): ${missing.join(", ")}`);
+  else lines.push("필요한 칸이 모두 있어요");
+  if (project.priority) lines.push(`${FIELD.priority}: ${optionList(project.priority)}`);
+  else problems.push(`"${FIELD.priority}" 필드가 없어요(우선순위 넣기는 건너뜀)`);
+  if (project.kind) lines.push(`${FIELD.kind}: ${optionList(project.kind)}`);
+  else problems.push(`"${FIELD.kind}" 필드가 없어요(종류 넣기는 건너뜀)`);
+
+  if (!project.week) problems.push(`"${FIELD.week}" 필드가 없어요(주차 넣기는 건너뜀)`);
+  else {
+    const iterations = project.week.configuration.iterations ?? [];
+    const it = currentIteration(iterations, today);
+    if (it) lines.push(`이번 주차: ${it.startDate}부터 ${it.duration}일`);
+    else problems.push("오늘이 들어 있는 주차가 없어요(진행판 Settings > 주차 > Add iteration)");
+    const endMs = Math.max(0, ...iterations.map((x) => Date.parse(`${x.startDate}T00:00:00Z`) + x.duration * 86_400_000));
+    const daysLeft = Math.round((endMs - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+    if (it && daysLeft <= WEEK_WARN_DAYS) problems.push(`주차가 ${daysLeft}일 뒤에 끝나요(진행판 Settings > 주차 > Add iteration)`);
+    else if (it) lines.push(`등록된 주차는 ${daysLeft}일 뒤까지`);
+  }
+  return { lines: [...lines, ...problems.map((x) => `고칠 것: ${x}`)], problems };
 }
 
 /**
@@ -293,8 +341,8 @@ export async function syncIssues({ graphql, org, owner, repo, projectTitle, numb
       await setSelect(graphql, project, project.status, item.id, opt.id);
       done.push(item.status ? `#${n}: ${item.status} 칸에서 ${next} 칸으로` : `#${n}: ${next} 칸으로`);
     }
-    // 처음 시작할 때 "주차"가 비어 있으면 이번 주로
-    if (project.week && !item.iteration && (event === "branch" || event === "pr_draft")) {
+    // 작업이 시작되거나 리뷰에 들어갈 때 "주차"가 비어 있으면 이번 주로
+    if (project.week && !item.iteration && (event === "branch" || event === "pr_draft" || event === "pr_ready")) {
       const it = currentIteration(project.week.configuration.iterations, today);
       if (it) {
         await graphql(SET_ITERATION, { p: project.id, i: item.id, f: project.week.id, o: it.id });
@@ -306,19 +354,54 @@ export async function syncIssues({ graphql, org, owner, repo, projectTitle, numb
 }
 
 /**
+ * develop처럼 기본 브랜치가 아닌 곳에 병합된 PR이 Closes로 연결한 이슈를 "완료"로 옮기고 닫는다.
+ * 이슈 닫기는 호출한 저장소의 GITHUB_TOKEN(issues: write)으로 한다. 실패해도 칸은 "완료"로 둔다.
+ */
+export async function closeMerged({ graphql, issueApi, org, owner, repo, projectTitle, numbers, prNumber, log = () => {} }) {
+  const project = await findProject(graphql, org, projectTitle);
+  if (!project) {
+    log(`진행판 "${projectTitle}"을 찾지 못했어요(토큰 권한 또는 이름 확인)`);
+    return [];
+  }
+  const done = [];
+  const doneOpt = findOption(project.status, STATUS.done);
+  for (const n of numbers) {
+    const issue = await findIssue(graphql, owner, repo, n, project.id);
+    if (!issue) continue; // 이미 닫힌 이슈
+    const { item } = await ensureItem(graphql, project, issue);
+    if (doneOpt && item.status !== STATUS.done) {
+      await setSelect(graphql, project, project.status, item.id, doneOpt.id);
+      done.push(`#${n}: ${item.status ?? "(없음)"} 칸에서 ${STATUS.done} 칸으로(#${prNumber} 병합)`);
+    }
+    if (!issueApi) {
+      done.push(`#${n}: 이슈를 닫을 토큰이 없어 열린 채로 둠`);
+      continue;
+    }
+    try {
+      await issueApi.rest.issues.update({ owner, repo, issue_number: n, state: "closed", state_reason: "completed" });
+      done.push(`#${n}: 이슈 닫음`);
+    } catch (e) {
+      done.push(`#${n}: 이슈를 닫지 못함(${e.status ?? ""} ${e.message}). 호출 워크플로의 permissions에 issues: write가 있는지 확인`);
+    }
+  }
+  return done;
+}
+
+/**
  * 공용 워크플로의 진입점. actions/github-script의 github, context, core를 받는다.
  * 토큰이 없으면 실패로 표시하지 않고 건너뛴다(점검 실행만 실패로 표시).
  */
-export async function run({ github, context, core, projectTitle, hasToken, today = kstToday() }) {
+export async function run({ github, context, core, projectTitle, hasToken, issueApi = null, today = kstToday() }) {
   const { owner, repo } = context.repo;
   const org = owner;
 
-  if (context.eventName === "workflow_dispatch") {
+  // 점검: 손으로 돌리거나(workflow_dispatch) 정기 실행(schedule). 고칠 것이 있으면 실패로 표시해 알림이 가게 한다.
+  if (context.eventName === "workflow_dispatch" || context.eventName === "schedule") {
     if (!hasToken) return core.setFailed("진행판 토큰이 없어요. 변수 PROJECT_APP_ID와 비밀값 PROJECT_APP_PRIVATE_KEY(또는 PROJECT_TOKEN)를 확인해 주세요");
-    const lines = await checkProject({ graphql: github.graphql, org, projectTitle, today });
+    const { lines, problems } = await checkProject({ graphql: github.graphql, org, projectTitle, today });
     core.info(lines.join("\n"));
     await core.summary.addHeading("진행판 점검", 3).addList(lines).write();
-    if (lines[0].includes("찾지 못했어요")) core.setFailed(lines[0]);
+    if (problems.length) core.setFailed(problems.join("\n"));
     return;
   }
 
@@ -327,10 +410,18 @@ export async function run({ github, context, core, projectTitle, hasToken, today
   if (!hasToken) return core.notice("진행판 토큰이 없어 건너뜁니다(memorIN-deploy의 .github/workflows/project-sync.yml 맨 위 설명 참고)");
 
   const common = { graphql: github.graphql, org, owner, repo, projectTitle, log: core.info };
-  const lines =
-    plan.type === "new_issue"
-      ? await addNewIssue({ ...common, number: plan.number, body: plan.body, labels: plan.labels })
-      : await syncIssues({ ...common, numbers: plan.numbers, event: plan.event, today });
+  let lines;
+  if (plan.type === "new_issue") {
+    lines = await addNewIssue({ ...common, number: plan.number, body: plan.body, labels: plan.labels });
+  } else if (plan.type === "pr_closed") {
+    const prNumber = context.payload.pull_request?.number;
+    lines = [
+      ...(plan.close.length ? await closeMerged({ ...common, issueApi, numbers: plan.close, prNumber }) : []),
+      ...(plan.back.length ? await syncIssues({ ...common, numbers: plan.back, event: "pr_closed", today }) : []),
+    ];
+  } else {
+    lines = await syncIssues({ ...common, numbers: plan.numbers, event: plan.event, today });
+  }
   core.info(lines.length ? lines.join("\n") : "바꿀 칸이 없습니다");
   if (lines.length) await core.summary.addList(lines).write();
 }

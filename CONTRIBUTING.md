@@ -14,8 +14,11 @@
 
 - 진행판(조직 Projects "memorIN 진행판")의 칸은 아래처럼 자동으로 옮겨집니다.
   - 이슈 번호를 넣은 브랜치를 올리면(`fix/347-설명` 또는 이슈 화면의 "Create a branch") "진행 중"
-  - PR 본문에 `Closes #번호`를 적고 PR을 열면 "리뷰 중", 수정 요청 리뷰를 받으면 다시 "진행 중"
-  - 이슈가 닫히면 "완료"
+  - PR 본문에 `Closes #번호`를 적고 PR을 열면 "리뷰 중", 수정 요청 리뷰를 받거나 초안으로 되돌리면 다시 "진행 중"
+  - PR이 병합되면 `Closes`로 연결한 이슈가 닫히고 "완료"
+    - backend처럼 develop에 병합해도 같습니다(GitHub은 기본 브랜치 병합 때만 닫아 주므로 자동화가 닫습니다). 릴리스 여부는 따로 관리합니다.
+  - PR을 병합하지 않고 닫으면 연결 이슈는 다시 "진행 중"
+- 매주 월요일 09:00(KST)에 진행판 점검이 돌아, 토큰 만료나 주차 부족 같은 문제가 있으면 실패로 알립니다.
 - 규칙은 `.github/scripts/project-sync.mjs`, 토큰 설정은 `.github/workflows/project-sync.yml` 맨 위 설명에 있습니다. backend와 frontend는 이 저장소의 공용 워크플로를 호출합니다.
 - 분류 회의 뒤 여러 이슈의 Status, 우선순위, 종류, 주차를 한 번에 바꿀 때는 Actions > 진행판 분류 일괄 적용을 씁니다. 입력 형식은 `.github/workflows/project-triage.yml` 맨 위에 있습니다.
 
