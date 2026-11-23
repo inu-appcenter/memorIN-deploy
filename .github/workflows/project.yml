@@ -1,6 +1,6 @@
 # 진행판(inu-appcenter 조직 Projects "memorIN 진행판") 자동 정리.
 # 규칙과 토큰 설정 방법은 memorIN-deploy의 .github/workflows/project-sync.yml(공용)에 있다.
-# 이 파일은 저장소 3개(backend, frontend, deploy)에 똑같이 둔다.
+# 이 파일은 저장소 3개(backend, frontend, deploy)에 같은 내용으로 둔다(deploy만 매주 정기 점검을 더 돈다).
 # 이슈와 브랜치 이벤트는 기본 브랜치(main)에 있는 이 파일로 돈다.
 name: 진행판 정리
 
@@ -9,15 +9,18 @@ on:
     types: [opened]
   create:
   pull_request:
-    types: [opened, reopened, ready_for_review, converted_to_draft, review_requested, edited]
+    types: [opened, reopened, ready_for_review, converted_to_draft, review_requested, edited, closed]
   pull_request_review:
     types: [submitted]
-  # 점검: 토큰과 진행판 필드를 읽기만 한다
+  # 점검: 토큰과 진행판 필드, 주차를 읽기만 한다
   workflow_dispatch:
-
+  # 매주 월요일 09:00(KST) 점검. 토큰 만료, 주차 부족 같은 문제를 실패로 알린다
+  schedule:
+    - cron: "0 0 * * 1"
 permissions:
   contents: read
-  issues: read
+  # develop처럼 기본 브랜치가 아닌 곳에 병합된 PR이 Closes로 연결한 이슈를 닫는다
+  issues: write
   pull-requests: read
 
 concurrency:
@@ -31,4 +34,7 @@ jobs:
     uses: inu-appcenter/memorIN-deploy/.github/workflows/project-sync.yml@main
     with:
       app-id: ${{ vars.PROJECT_APP_ID }}
-    secrets: inherit
+    # 필요한 비밀값만 넘긴다(secrets: inherit는 저장소의 비밀값을 모두 넘김)
+    secrets:
+      PROJECT_APP_PRIVATE_KEY: ${{ secrets.PROJECT_APP_PRIVATE_KEY }}
+      PROJECT_TOKEN: ${{ secrets.PROJECT_TOKEN }}
